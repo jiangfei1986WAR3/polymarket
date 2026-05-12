@@ -1,0 +1,23 @@
+.DS_Store
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+*/.venv/
+
+# Local data, caches, and generated reports
+/kronos_v1_backtest/data/raw/
+/kronos_v1_backtest/data/cache/
+/kronos_v1_backtest/reports/
+/kronos_v1_backtest/.pytest_cache/
+
+# External model/code dependencies
+/kronos_external/
+
+# Common local artifacts
+*.log
+*.tmp
