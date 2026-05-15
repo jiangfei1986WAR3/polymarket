@@ -1,0 +1,13 @@
+{
+  "clob_base_url": "https://clob.polymarket.com",
+  "chain_id": 137,
+  "signature_type": 0,
+  "funder_address": "",
+  "wallet_address": "",
+  "private_key": "",
+  "creds": {
+    "key": "",
+    "secret": "",
+    "passphrase": ""
+  }
+}

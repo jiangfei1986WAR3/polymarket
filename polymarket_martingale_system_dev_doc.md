@@ -13,7 +13,7 @@
 
 构建一套可在 Polymarket 上运行的“马丁型（最多 6 步）”自动交易系统，核心能力包含：
 
-- 使用 Binance `BTCUSDT` 1H K 线作为信号/标签源（`close > open` 视为 Up，否则 Down）。
+- 使用 Binance `BTCUSDT` 1H K 线作为信号/标签源（`close >= open` 视为 Up，否则 Down）。
 - 在“理想 1:1 赌局”假设下完成大规模回测/风险统计：
   - 穷举 6 位 Up/Down pattern（共 `2^6 = 64` 种）；
   - 统计总盈亏、最大回撤、6 连亏（爆仓）事件与间隔分布。
@@ -31,7 +31,7 @@
 
 - **理想 1:1**：押对盈利 = `stake * 1.0`，押错亏损 = `stake`。
 - 暂不计入：手续费、点差、滑点、成交不确定性、Polymarket 价格（YES/NO 份额价格）等。
-- 所有策略当前均以“每小时开一局”做抽象：`close > open` 判定 Up。
+- 所有策略当前均以“每小时开一局”做抽象：`close >= open` 判定 Up。
 
 这些简化对“马丁爆仓概率、爆仓间隔、风险过滤是否有样本外价值”仍具参考意义；
 但要落地到 Polymarket 实盘，后续需要把收益模型替换为“按订单簿价格成交后的实际 PnL”。
@@ -40,7 +40,7 @@
 
 ## 2. 代码结构与关键模块
 
-主要代码在：`kronos_v1_backtest/src/kronos_v1_backtest/`
+主要代码在：`martingale_research/src/martingale_research/`
 
 ### 2.1 数据模块
 
@@ -102,18 +102,18 @@
 下载 BTCUSDT 1h 最近 365 天：
 
 ```bash
-PYTHONPATH=kronos_v1_backtest/src \
-  python3 -m kronos_v1_backtest.cli \
+PYTHONPATH=martingale_research/src \
+  python3 -m martingale_research.cli \
   --download-binance --symbol BTCUSDT --days 365 \
-  --csv kronos_v1_backtest/data/raw/binance/BTCUSDT_1h_365d.csv
+  --csv martingale_research/data/raw/binance/BTCUSDT_1h_365d.csv
 ```
 
 ### 3.2 穷举 64 个 pattern 的 6 步马丁回测
 
 ```bash
-PYTHONPATH=kronos_v1_backtest/src \
-  python3 -m kronos_v1_backtest.cli \
-  --csv kronos_v1_backtest/data/raw/binance/BTCUSDT_1h_365d.csv \
+PYTHONPATH=martingale_research/src \
+  python3 -m martingale_research.cli \
+  --csv martingale_research/data/raw/binance/BTCUSDT_1h_365d.csv \
   --martingale-enum --topn 10
 ```
 
@@ -124,9 +124,9 @@ PYTHONPATH=kronos_v1_backtest/src \
 以 pattern=UUUUUU（每一步都押涨）为例，统计“过去 6 根 state → 未来 72 小时爆仓概率”。
 
 ```bash
-PYTHONPATH=kronos_v1_backtest/src \
-  python3 -m kronos_v1_backtest.cli \
-  --csv kronos_v1_backtest/data/raw/binance/BTCUSDT_1h_365d.csv \
+PYTHONPATH=martingale_research/src \
+  python3 -m martingale_research.cli \
+  --csv martingale_research/data/raw/binance/BTCUSDT_1h_365d.csv \
   --conditional-risk --risk-horizon 72 --train-ratio 0.75 \
   --risk-pattern UUUUUU
 ```
@@ -138,9 +138,9 @@ PYTHONPATH=kronos_v1_backtest/src \
 ### 3.4 状态驱动马丁实验
 
 ```bash
-PYTHONPATH=kronos_v1_backtest/src \
-  python3 -m kronos_v1_backtest.cli \
-  --csv kronos_v1_backtest/data/raw/binance/BTCUSDT_1h_365d.csv \
+PYTHONPATH=martingale_research/src \
+  python3 -m martingale_research.cli \
+  --csv martingale_research/data/raw/binance/BTCUSDT_1h_365d.csv \
   --state-driven --state-mapping forward
 ```
 

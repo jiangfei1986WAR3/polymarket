@@ -1,4 +1,4 @@
-.DS_Store
+﻿.DS_Store
 *.pyc
 *.pyo
 *.pyd
@@ -10,14 +10,13 @@ __pycache__/
 */.venv/
 
 # Local data, caches, and generated reports
-/kronos_v1_backtest/data/raw/
-/kronos_v1_backtest/data/cache/
-/kronos_v1_backtest/reports/
-/kronos_v1_backtest/.pytest_cache/
-
-# External model/code dependencies
-/kronos_external/
+/martingale_research/data/raw/
+/martingale_research/data/cache/
+/martingale_research/reports/
+/martingale_research/runtime_state/
+/martingale_research/.pytest_cache/
 
 # Common local artifacts
 *.log
 *.tmp
+**/node_modules/

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Polymarket TS Executor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <h1>Polymarket TS Executor</h1>
+        <p>个人使用版控制台，按步骤填写配置后即可启动</p>
+      </div>
+      <div class="header-actions">
+        <button id="refresh-button">刷新状态</button>
+        <span id="generated-at">-</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel panel-wide">
+        <div class="panel-header">
+          <h2>使用步骤</h2>
+          <p>先保存配置，再启动程序</p>
+        </div>
+        <div class="step-list">
+          <div class="step-card">
+            <div class="step-index">1</div>
+            <div>
+              <strong>填写账户和运行参数</strong>
+              <div>先在下方表单填写私钥、钱包地址、初始马丁金额和运行模式。</div>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-index">2</div>
+            <div>
+              <strong>点击保存配置</strong>
+              <div>保存成功后，软件会把参数写入 `app_config.json`。</div>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-index">3</div>
+            <div>
+              <strong>点击启动运行</strong>
+              <div>状态区会显示是否正在运行、是否暂停、最近一次动作和最近日志。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-header">
+          <h2>快速概览</h2>
+          <p>打开软件后优先看这里</p>
+        </div>
+        <div id="hero-grid" class="hero-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>当前状态</h2>
+          <p id="status-line">读取中...</p>
+        </div>
+        <div id="banner-list" class="banner-list"></div>
+        <div id="card-grid" class="status-grid"></div>
+        <div class="button-row">
+          <button data-action="start" id="start-button">启动运行</button>
+          <button data-action="stop" id="stop-button">停止运行</button>
+          <button data-action="restart" id="restart-button">重启程序</button>
+          <button data-action="pause" id="pause-button">暂停交易</button>
+          <button data-action="resume" id="resume-button">恢复交易</button>
+        </div>
+        <div id="issue-list" class="issue-list"></div>
+        <pre id="action-output" class="console-output compact-output">等待操作...</pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>常用配置</h2>
+          <p id="config-path">-</p>
+        </div>
+        <form id="config-form" class="form-grid">
+          <div class="form-section">
+            <h3>账户配置</h3>
+            <label class="field">
+              <span>配置名称</span>
+              <input id="profile-name" type="text" />
+            </label>
+            <label class="field">
+              <span>钱包私钥</span>
+              <input id="private-key" type="password" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>钱包地址</span>
+              <input id="wallet-address" type="text" />
+            </label>
+            <label class="field">
+              <span>Funder 地址</span>
+              <input id="funder-address" type="text" />
+            </label>
+            <label class="field">
+              <span>签名类型</span>
+              <select id="signature-type">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-section">
+            <h3>运行配置</h3>
+            <label class="field">
+              <span>运行模式</span>
+              <select id="execute-live">
+                <option value="false">模拟运行</option>
+                <option value="true">真实运行</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>是否写入状态</span>
+              <select id="commit-state">
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>轮询间隔毫秒</span>
+              <input id="interval-ms" type="number" min="1000" step="1000" />
+            </label>
+            <label class="field">
+              <span>初始马丁金额 U</span>
+              <input id="base-stake-u" type="number" min="2" max="200" step="1" />
+              <small class="field-help">首步下注金额可由您自己设置，后续会按马丁翻倍继续执行。</small>
+            </label>
+            <label class="field">
+              <span>自动赢单回款</span>
+              <select id="auto-redeem-enabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+              <small class="field-help">只在上一笔判定为赢且市场进入 closed 后，后台自动发起 redeem，不会阻塞下一笔开单。</small>
+            </label>
+          </div>
+
+          <div class="form-section">
+            <h3>自动回款凭据</h3>
+            <label class="field">
+              <span>Relayer API Key</span>
+              <input id="relayer-api-key" type="password" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>Relayer API Key Address</span>
+              <input id="relayer-api-key-address" type="text" />
+            </label>
+            <div class="field field-full">
+              <small class="field-help">这里填写 Polymarket 设置页里的 `Relayer API keys`：`RELAYER_API_KEY` 和 `RELAYER_API_KEY_ADDRESS`。这只用于自动 redeem 回可用余额，不影响原有下单凭据。</small>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <h3>风控设置</h3>
+            <label class="field">
+              <span>最大日亏损 U</span>
+              <input id="max-daily-loss-u" type="number" min="0" step="1" />
+            </label>
+            <label class="field">
+              <span>最大连续爆仓次数</span>
+              <input id="max-consecutive-blowups" type="number" min="0" step="1" />
+            </label>
+            <label class="field">
+              <span>最大 API 失败次数</span>
+              <input id="max-api-failures" type="number" min="0" step="1" />
+            </label>
+          </div>
+
+          <div class="form-section">
+            <h3>网络与服务器</h3>
+            <label class="field">
+              <span>Polymarket 交易接口地址</span>
+              <input id="host" type="text" />
+            </label>
+            <label class="field">
+              <span>Polygon 链 RPC 地址</span>
+              <input id="rpc-url" type="text" />
+            </label>
+            <label class="field">
+              <span>币安 BTC 交易对</span>
+              <input id="binance-symbol" type="text" />
+            </label>
+            <details class="advanced-box field-full">
+              <summary>高级设置与服务器参数</summary>
+              <div class="advanced-grid">
+                <label class="field">
+                  <span>链 ID</span>
+                  <input id="chain-id" type="number" min="1" step="1" />
+                </label>
+                <label class="field">
+                  <span>数据接口地址</span>
+                  <input id="data-api-base-url" type="text" />
+                </label>
+                <label class="field">
+                  <span>Gamma 接口地址</span>
+                  <input id="gamma-api-base-url" type="text" />
+                </label>
+                <label class="field">
+                  <span>币安接口地址</span>
+                  <input id="binance-api-base-url" type="text" />
+                </label>
+                <label class="field">
+                  <span>计划任务名</span>
+                  <input id="scheduled-task-name" type="text" />
+                </label>
+              </div>
+            </details>
+          </div>
+        </form>
+        <div class="button-row">
+          <button id="load-config-button">重新载入配置</button>
+          <button id="save-config-button">保存配置</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>策略中心</h2>
+          <p>当前启用策略、候选策略和推荐说明都在这里</p>
+        </div>
+        <div class="button-row">
+          <button id="reload-strategy-button">全量重算并选优</button>
+          <button id="auto-pick-strategy-button">自动选择推荐策略</button>
+        </div>
+        <div id="strategy-progress" class="progress-card hidden" aria-live="polite">
+          <div class="progress-head">
+            <div id="strategy-progress-title" class="progress-title">正在准备全量重算并选优...</div>
+            <div id="strategy-progress-percent" class="progress-percent">0%</div>
+          </div>
+          <div class="progress-track">
+            <div id="strategy-progress-bar" class="progress-bar"></div>
+          </div>
+          <div id="strategy-progress-detail" class="progress-detail">这一步可能需要等待几十秒，完成后会自动刷新候选策略。</div>
+        </div>
+        <div id="strategy-center-summary" class="info-strip">读取中...</div>
+        <div id="strategy-source-note" class="path-list"></div>
+        <div class="panel-subtitle">当前启用策略</div>
+        <label class="field field-full">
+          <span>准备切换到的策略</span>
+          <select id="strategy-select"></select>
+        </label>
+        <div class="button-row">
+          <button id="apply-strategy-button">设为当前策略并保存</button>
+        </div>
+        <div id="strategy-notice" class="info-strip">读取中...</div>
+        <div id="strategy-card-grid" class="status-grid"></div>
+        <div class="panel-subtitle">马丁金额阶梯预览</div>
+        <div id="martingale-ladder" class="ladder-grid"></div>
+        <div id="strategy-detail-list" class="path-list"></div>
+        <div class="panel-subtitle">候选策略列表</div>
+        <div id="candidate-strategy-list" class="candidate-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>常用目录</h2>
+          <p>点按钮可直接打开</p>
+        </div>
+        <div class="quick-actions">
+          <button id="open-config-dir-button">打开配置文件夹</button>
+          <button id="open-logs-dir-button">打开日志文件夹</button>
+          <button id="open-strategy-dir-button">打开策略文件夹</button>
+        </div>
+        <div id="path-list" class="path-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>最近日志</h2>
+          <p id="log-meta">-</p>
+        </div>
+        <div id="log-list" class="log-list"></div>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-header">
+          <h2>高级调试信息</h2>
+          <p>一般情况下可以不看</p>
+        </div>
+        <details class="advanced-box" open>
+          <summary>展开 / 收起内部状态</summary>
+          <pre id="runtime-summary" class="console-output">-</pre>
+        </details>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

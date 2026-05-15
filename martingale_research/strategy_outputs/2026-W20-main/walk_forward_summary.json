@@ -1,0 +1,28 @@
+{
+  "version": "2026-W20-main",
+  "pattern": "DUUUUU",
+  "coverage_target": 0.55,
+  "train_window_h": 8496,
+  "step_h": 168,
+  "n_steps": 1,
+  "total_entries": 53,
+  "total_blowups": 0,
+  "total_pnl_u": 106.0,
+  "max_step_drawdown_u": 62.0,
+  "avg_entries_per_step": 53.0,
+  "steps": [
+    {
+      "step_index": 0,
+      "train_start_i": 0,
+      "train_end_i_exclusive": 8496,
+      "test_start_i": 8496,
+      "test_end_i_exclusive": 8664,
+      "allowed_states_count": 36,
+      "train_coverage": 0.5577334283677833,
+      "test_entries": 53,
+      "test_blowups": 0,
+      "test_pnl_u": 106.0,
+      "test_max_drawdown_u": 62.0
+    }
+  ]
+}

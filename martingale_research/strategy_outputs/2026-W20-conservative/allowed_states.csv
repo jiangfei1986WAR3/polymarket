@@ -1,0 +1,12 @@
+version,pattern,coverage_target,state,allow
+2026-W20-conservative,UUUUUU,0.15,DDDDUD,1
+2026-W20-conservative,UUUUUU,0.15,DUDDDD,1
+2026-W20-conservative,UUUUUU,0.15,UDDDDU,1
+2026-W20-conservative,UUUUUU,0.15,DDUDDD,1
+2026-W20-conservative,UUUUUU,0.15,DDDUDD,1
+2026-W20-conservative,UUUUUU,0.15,UDDDDD,1
+2026-W20-conservative,UUUUUU,0.15,UUUUDD,1
+2026-W20-conservative,UUUUUU,0.15,UUDUUU,1
+2026-W20-conservative,UUUUUU,0.15,DDDDDU,1
+2026-W20-conservative,UUUUUU,0.15,UDDUUU,1
+2026-W20-conservative,UUUUUU,0.15,UUDDUU,1

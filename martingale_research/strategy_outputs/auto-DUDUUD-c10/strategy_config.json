@@ -1,0 +1,12 @@
+{
+  "version": "auto-DUDUUD-c10",
+  "generated_at_utc": "2026-05-13T20:38:58.538707+00:00",
+  "pattern": "DUDUUD",
+  "coverage_target": 0.1,
+  "risk_horizon_h": 72,
+  "train_window_days": 334,
+  "step_days": 7,
+  "base_stake_u": 2.0,
+  "max_steps": 6,
+  "allowed_states_count": 7
+}

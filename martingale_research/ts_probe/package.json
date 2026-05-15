@@ -1,0 +1,20 @@
+{
+  "name": "polymarket-ts-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "tsx src/probe.ts",
+    "deposit-check": "tsx src/deposit-wallet-check.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@polymarket/builder-relayer-client": "latest",
+    "@polymarket/clob-client-v2": "latest",
+    "viem": "latest"
+  },
+  "devDependencies": {
+    "tsx": "latest",
+    "typescript": "latest",
+    "@types/node": "latest"
+  }
+}

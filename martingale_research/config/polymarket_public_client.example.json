@@ -1,0 +1,6 @@
+{
+  "gamma_base_url": "https://gamma-api.polymarket.com",
+  "clob_base_url": "https://clob.polymarket.com",
+  "chain_id": 137,
+  "timeout_s": 10.0
+}

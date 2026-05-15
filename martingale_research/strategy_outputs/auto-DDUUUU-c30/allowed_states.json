@@ -1,0 +1,27 @@
+{
+  "version": "auto-DDUUUU-c30",
+  "pattern": "DDUUUU",
+  "coverage_target": 0.3,
+  "allowed_states": [
+    "UUDUUU",
+    "DUUUUD",
+    "DUUDUU",
+    "UDUDUD",
+    "UDUUUD",
+    "DDDDDU",
+    "UDUDDD",
+    "UDDUDU",
+    "DUDUDU",
+    "DDDDUD",
+    "UUUDUU",
+    "UDDDDU",
+    "DDDUUD",
+    "DDDDUU",
+    "DDUDUD",
+    "UUDUDD",
+    "UDDDUU",
+    "UUUUDD",
+    "UUDDDD",
+    "DUDUDD"
+  ]
+}

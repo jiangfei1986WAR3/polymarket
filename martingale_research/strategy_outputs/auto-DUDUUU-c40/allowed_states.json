@@ -1,0 +1,32 @@
+{
+  "version": "auto-DUDUUU-c40",
+  "pattern": "DUDUUU",
+  "coverage_target": 0.4,
+  "allowed_states": [
+    "DDUUUU",
+    "UDUUUD",
+    "UUDDUU",
+    "DUUUDD",
+    "UDDUUU",
+    "DUUUUD",
+    "UUUUDD",
+    "UDUDUU",
+    "UUUDDU",
+    "UUDUUD",
+    "UDUUDU",
+    "UUUDUU",
+    "DUUDUU",
+    "DUUUDU",
+    "UUDUDU",
+    "DUDUDU",
+    "DUDUUU",
+    "UUDUUU",
+    "DUDUUD",
+    "UDUUDD",
+    "DDUUUD",
+    "UUUUUD",
+    "DUUDDU",
+    "DDUDUD",
+    "UDDUDU"
+  ]
+}

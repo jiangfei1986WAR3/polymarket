@@ -1,0 +1,18 @@
+{
+  "connection": {
+    "clob_base_url": "https://clob.polymarket.com",
+    "chain_id": 137,
+    "api_key": "",
+    "api_secret": "",
+    "api_passphrase": "",
+    "wallet_address": ""
+  },
+  "market": {
+    "market_slug": "btc-up-or-down-1h",
+    "market_name": "BTC 1H Up or Down",
+    "up_token_id": "replace_with_yes_token_id_for_up_contract",
+    "down_token_id": "replace_with_no_token_id_for_down_contract",
+    "order_price": 0.5,
+    "max_order_size": 2.0
+  }
+}

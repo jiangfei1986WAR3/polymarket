@@ -1,0 +1,28 @@
+{
+  "version": "2026-W20-conservative",
+  "pattern": "UUUUUU",
+  "coverage_target": 0.15,
+  "train_window_h": 8496,
+  "step_h": 168,
+  "n_steps": 1,
+  "total_entries": 12,
+  "total_blowups": 0,
+  "total_pnl_u": 24.0,
+  "max_step_drawdown_u": 2.0,
+  "avg_entries_per_step": 12.0,
+  "steps": [
+    {
+      "step_index": 0,
+      "train_start_i": 0,
+      "train_end_i_exclusive": 8496,
+      "test_start_i": 8496,
+      "test_end_i_exclusive": 8664,
+      "allowed_states_count": 10,
+      "train_coverage": 0.15359942979330007,
+      "test_entries": 12,
+      "test_blowups": 0,
+      "test_pnl_u": 24.0,
+      "test_max_drawdown_u": 2.0
+    }
+  ]
+}

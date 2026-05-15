@@ -1,0 +1,5 @@
+node_modules/
+build_dist/
+runtime_state/
+app_config.json
+scripts/windows/env.local.ps1

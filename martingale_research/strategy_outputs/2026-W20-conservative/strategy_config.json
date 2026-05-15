@@ -1,0 +1,12 @@
+{
+  "version": "2026-W20-conservative",
+  "generated_at_utc": "2026-05-13T19:33:00.162740+00:00",
+  "pattern": "UUUUUU",
+  "coverage_target": 0.15,
+  "risk_horizon_h": 72,
+  "train_window_days": 354,
+  "step_days": 7,
+  "base_stake_u": 2.0,
+  "max_steps": 6,
+  "allowed_states_count": 11
+}

@@ -1,0 +1,14 @@
+{
+  "version": "auto-UDDUDD-c10",
+  "pattern": "UDDUDD",
+  "coverage_target": 0.1,
+  "allowed_states": [
+    "DDDUUD",
+    "UUUUDU",
+    "DUUDUU",
+    "UUDUDD",
+    "DDDDUU",
+    "DUUDDD",
+    "UDUDDD"
+  ]
+}

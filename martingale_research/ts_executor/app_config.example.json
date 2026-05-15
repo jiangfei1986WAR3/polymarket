@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "profileName": "default-windows-profile",
+  "credentials": {
+    "privateKey": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "walletAddress": "0x1111111111111111111111111111111111111111",
+    "funderAddress": "0x2222222222222222222222222222222222222222",
+    "signatureType": 3
+  },
+  "network": {
+    "host": "https://clob.polymarket.com",
+    "chainId": 137,
+    "rpcUrl": "https://1rpc.io/matic",
+    "dataApiBaseUrl": "https://data-api.polymarket.com",
+    "gammaApiBaseUrl": "https://gamma-api.polymarket.com",
+    "binanceApiBaseUrl": "https://api.binance.com",
+    "binanceSymbol": "BTCUSDT"
+  },
+  "trading": {
+    "executeLive": false,
+    "commitState": true,
+    "intervalMs": 60000,
+    "strategyDir": ".\\..\\strategy_outputs\\2026-W20-main",
+    "baseStakeU": 2
+  },
+  "redemption": {
+    "autoRedeemEnabled": true,
+    "relayerApiKey": "",
+    "relayerApiKeyAddress": ""
+  },
+  "riskLimits": {
+    "maxDailyLossU": 126,
+    "maxConsecutiveBlowups": 1,
+    "maxApiFailures": 3
+  },
+  "paths": {
+    "stateFile": ".\\runtime_state\\runtime_state_v2.json",
+    "eventsLogFile": ".\\runtime_state\\execution_events.jsonl",
+    "heartbeatFile": ".\\runtime_state\\daemon_heartbeat.json",
+    "daemonPidFile": ".\\runtime_state\\daemon_runner.pid",
+    "daemonStdoutLogFile": ".\\runtime_state\\daemon_runner.stdout.log",
+    "daemonStderrLogFile": ".\\runtime_state\\daemon_runner.stderr.log",
+    "daemonStopFile": ".\\runtime_state\\daemon_runner.stop"
+  },
+  "windows": {
+    "scheduledTaskName": "PolymarketTsExecutorDaemon",
+    "autoStartOnLogon": true,
+    "autoStartOnBoot": false
+  }
+}

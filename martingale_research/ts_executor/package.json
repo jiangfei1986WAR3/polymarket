@@ -1,0 +1,121 @@
+{
+  "name": "polymarket-ts-executor",
+  "version": "0.1.0",
+  "private": true,
+  "author": "Trae Project",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "productName": "Polymarket TS Executor",
+  "description": "Desktop runner and Windows packaging shell for the Polymarket TypeScript executor.",
+  "scripts": {
+    "app-config": "tsx src/app_config_cli.ts",
+    "app-gui": "tsx src/gui_server.ts",
+    "app-ui": "tsx src/app_ui_state_cli.ts",
+    "auto-trade": "tsx src/auto_trade_demo.ts",
+    "daemon-service": "tsx src/daemon_service.ts",
+    "daemon-status": "tsx src/daemon_status.ts",
+    "daemon-runner": "tsx src/daemon_runner.ts",
+    "dist:win-portable": "node electron/build_windows.mjs --win portable",
+    "dist:win-nsis": "node electron/build_windows.mjs --win nsis",
+    "dist:win": "node electron/build_windows.mjs --win portable nsis",
+    "hourly-daemon": "tsx src/hourly_daemon_demo.ts",
+    "lifecycle-demo": "tsx src/lifecycle_demo.ts",
+    "market-locator": "tsx src/market_locator_demo.ts",
+    "desktop": "node electron/launcher.mjs",
+    "pack:win-dir": "node electron/build_windows.mjs --win dir",
+    "reconciler": "tsx src/execution_reconciler_demo.ts",
+    "runtime-control": "tsx src/runtime_control.ts",
+    "strategy-runner": "tsx src/strategy_runner_demo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@polymarket/builder-relayer-client": "latest",
+    "@polymarket/clob-client-v2": "latest",
+    "viem": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "tsx": "latest",
+    "typescript": "latest"
+  },
+  "build": {
+    "appId": "com.trae.polymarket.ts-executor",
+    "productName": "Polymarket TS Executor",
+    "asar": false,
+    "directories": {
+      "output": "build_dist"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "ui/**/*",
+      "scripts/windows/**/*",
+      "package.json",
+      "package-lock.json",
+      "tsconfig.json",
+      "README.md",
+      "app_config.example.json",
+      "!build_dist{,/**/*}",
+      "!runtime_state/electron_cache{,/**/*}",
+      "!runtime_state/electron_builder_cache{,/**/*}",
+      "!runtime_state/electron_desktop{,/**/*}",
+      "!runtime_state/electron_launcher{,/**/*}",
+      "!runtime_state/gui_test{,/**/*}",
+      "!runtime_state/*.log",
+      "!runtime_state/*.pid",
+      "!runtime_state/*.stop"
+    ],
+    "extraResources": [
+      {
+        "from": "app_config.example.json",
+        "to": "app_config.example.json"
+      },
+      {
+        "from": "scripts/windows",
+        "to": "windows_scripts"
+      },
+      {
+        "from": "../scripts",
+        "to": "scripts"
+      },
+      {
+        "from": "../data",
+        "to": "data"
+      },
+      {
+        "from": "../src",
+        "to": "src"
+      },
+      {
+        "from": "../strategy_outputs",
+        "to": "strategy_outputs"
+      },
+      {
+        "from": "../requirements.txt",
+        "to": "requirements.txt"
+      },
+      {
+        "from": "../pyproject.toml",
+        "to": "pyproject.toml"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}-portable.${ext}"
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-${arch}-nsis.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
+  }
+}
