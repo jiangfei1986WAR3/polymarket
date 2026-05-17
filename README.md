@@ -1,9 +1,11 @@
-﻿# Polymarket 马丁系统
+# Polymarket 马丁系统
 
 本仓库用于开发与运行 **Polymarket 马丁交易系统**，当前阶段聚焦于马丁策略研究、回测和风险过滤。
 
 核心开发文档：
 - `polymarket_martingale_system_dev_doc.md`
+- `polymarket_martingale_handoff_2026-05-15.md`
+- `polymarket_server_recovery_guide.md`
 
 ## 快速开始（研究 / 回测工具）
 
