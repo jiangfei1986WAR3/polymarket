@@ -12,6 +12,141 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function buildAccountChecks(summary: ReturnType<typeof summarizeAppConfig>): AppUiBanner[] {
+  const checks: AppUiBanner[] = [];
+  const { account, credentials, redemption } = summary;
+
+  if (account.accountMode === "eoa") {
+    checks.push({
+      level: credentials.signatureType === 0 ? "success" : "error",
+      code: "EOA_SIGNATURE_TYPE",
+      title: credentials.signatureType === 0 ? "EOA 签名类型正确" : "EOA 签名类型不匹配",
+      detail:
+        credentials.signatureType === 0
+          ? "当前 EOA 模式使用 signatureType=0，符合老系统钱包模式。"
+          : `当前 EOA 模式却配置了 signatureType=${credentials.signatureType}，这通常会导致鉴权失败。`,
+      suggestedAction:
+        credentials.signatureType === 0 ? "保持当前设置即可。" : "把签名类型改回 0，并重新保存配置。",
+    });
+    checks.push({
+      level:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() === credentials.funderAddress.toLowerCase()
+          ? "success"
+          : "warning",
+      code: "EOA_FUNDER_MATCH",
+      title:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() === credentials.funderAddress.toLowerCase()
+          ? "EOA 地址关系正常"
+          : "EOA funder 与钱包地址不一致",
+      detail:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() === credentials.funderAddress.toLowerCase()
+          ? "EOA 模式下，walletAddress 与 funderAddress 当前一致。"
+          : "EOA 模式下通常 walletAddress 与 funderAddress 应该填写同一个外部钱包地址。",
+      suggestedAction:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() === credentials.funderAddress.toLowerCase()
+          ? "如果这是您当前老系统的钱包模式，可继续使用。"
+          : "如果您不是在做特殊实验，请把 funderAddress 改成与钱包地址一致。",
+    });
+  } else if (account.accountMode === "poly_proxy") {
+    checks.push({
+      level: credentials.signatureType === 1 ? "success" : "error",
+      code: "PROXY_SIGNATURE_TYPE",
+      title: credentials.signatureType === 1 ? "POLY_PROXY 签名类型正确" : "POLY_PROXY 签名类型不匹配",
+      detail:
+        credentials.signatureType === 1
+          ? "当前邮箱账户模式使用 signatureType=1，符合官方 POLY_PROXY 路径。"
+          : `当前 POLY_PROXY 模式却配置了 signatureType=${credentials.signatureType}，这通常无法通过 Polymarket 账户鉴权。`,
+      suggestedAction:
+        credentials.signatureType === 1 ? "保持当前设置，然后继续核对 signer 与 proxy funder。" : "把签名类型改成 1，并重新保存配置。",
+    });
+    checks.push({
+      level:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+          ? "success"
+          : "warning",
+      code: "PROXY_FUNDER_RELATION",
+      title:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+          ? "POLY_PROXY 地址关系看起来合理"
+          : "POLY_PROXY 的 signer / funder 关系需要确认",
+      detail:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+          ? "当前 walletAddress 与 funderAddress 不相同，更接近 signer 地址 + 站内 proxy wallet 的常见填写方式。"
+          : "POLY_PROXY 模式下，walletAddress 通常是 signer 地址，而 funderAddress 通常是站内 proxy wallet，二者往往不相同。",
+      suggestedAction:
+        credentials.walletAddress &&
+        credentials.funderAddress &&
+        credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+          ? "下一步建议用测试邮箱账户做只读校验和小额下单。"
+          : "请从 Polymarket 站内确认 proxy wallet 地址，并把它单独填入 funderAddress。",
+    });
+  } else {
+    checks.push({
+      level: credentials.signatureType === 3 ? "success" : "error",
+      code: "DEPOSIT_WALLET_SIGNATURE_TYPE",
+      title: credentials.signatureType === 3 ? "Deposit Wallet 签名类型正确" : "Deposit Wallet 签名类型不匹配",
+      detail:
+        credentials.signatureType === 3
+          ? "当前邮箱账户新模式使用 signatureType=3，符合官方 POLY_1271 路径。"
+          : `当前 deposit wallet 模式却配置了 signatureType=${credentials.signatureType}，这通常会被 CLOB 拒绝并提示使用 deposit wallet flow。`,
+      suggestedAction:
+        credentials.signatureType === 3 ? "保持当前设置，然后继续核对 signer 与 deposit wallet。" : "把签名类型改成 3，并重新保存配置。",
+    });
+    checks.push({
+      level:
+        !credentials.funderAddress ||
+        credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+          ? "success"
+          : "warning",
+      code: "DEPOSIT_WALLET_FUNDER_RELATION",
+      title:
+        !credentials.funderAddress
+          ? "Deposit Wallet 将自动推导"
+          : credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+            ? "Deposit Wallet 地址关系看起来合理"
+            : "Deposit Wallet 地址关系需要确认",
+      detail:
+        !credentials.funderAddress
+          ? "当前未显式填写 funderAddress，系统会根据 signer 地址自动推导 deposit wallet。"
+          : credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+            ? "当前 walletAddress 与 funderAddress 不相同，更接近 signer 地址 + deposit wallet 的常见填写方式。"
+            : "Deposit wallet 模式下，walletAddress 通常是 signer 地址，而 funderAddress 通常是 deposit wallet 地址，二者通常不相同。",
+      suggestedAction:
+        !credentials.funderAddress
+          ? "可以先执行只读验证，让系统返回推导出的 deposit wallet 结果。"
+          : credentials.walletAddress.toLowerCase() !== credentials.funderAddress.toLowerCase()
+            ? "下一步建议同步余额，再用小额测试单验证 deposit wallet flow。"
+            : "请确认 funderAddress 填的是 deposit wallet，而不是 signer 地址本身。",
+    });
+  }
+
+  if (redemption.autoRedeemEnabled && !redemption.relayerApiKeyAddress) {
+    checks.push({
+      level: "warning",
+      code: "REDEEM_RELAYER_MISSING",
+      title: "自动回款凭据未补全",
+      detail: "当前自动回款开关已开启，但还没有完整填写 Relayer API Key Address。",
+      suggestedAction: "如果暂时不做自动回款，可先关闭该开关；否则请补齐 relayer 凭据。",
+    });
+  }
+
+  return checks;
+}
+
 function safeReadRecentExecutionEvents(logFile: string, limit: number): AppUiLogEntry[] {
   if (!fs.existsSync(logFile)) {
     return [];
@@ -242,6 +377,7 @@ export function buildAppUiState(args?: {
     configIssues,
     overview: {
       profileName: config?.profileName ?? "unconfigured-profile",
+      accountMode: config?.account.accountMode ?? "eoa",
       health: daemon.health,
       runnerStatus: daemon.runner?.status ?? "unknown",
       executeLive: config?.trading.executeLive ?? false,
@@ -269,6 +405,10 @@ export function buildAppUiState(args?: {
       config: {
         summary: {
           profileName: configSummary.profileName,
+          accountMode: configSummary.account.accountMode,
+          accountLabel: configSummary.account.label,
+          accountNotes: configSummary.account.notes,
+          modeHint: configSummary.accountModeHint,
           privateKeyMasked: configSummary.credentials.privateKeyMasked,
           walletAddress: configSummary.credentials.walletAddress,
           funderAddress: configSummary.credentials.funderAddress,
@@ -276,6 +416,7 @@ export function buildAppUiState(args?: {
           strategyDir: configSummary.trading.strategyDir,
           scheduledTaskName: configSummary.windows.scheduledTaskName,
         },
+        accountChecks: buildAccountChecks(configSummary),
         network: configSummary.network,
         riskLimits: configSummary.riskLimits,
         paths: configSummary.paths,

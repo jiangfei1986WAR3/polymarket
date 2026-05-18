@@ -1,4 +1,5 @@
 export type SignatureType = 0 | 1 | 2 | 3;
+export type AccountMode = "eoa" | "poly_proxy" | "deposit_wallet_1271";
 
 export interface AppConfigValidationIssue {
   path: string;
@@ -107,6 +108,7 @@ export interface AppUiState {
   configIssues: AppConfigValidationIssue[];
   overview: {
     profileName: string;
+    accountMode: AccountMode;
     health: DaemonHealthStatus;
     runnerStatus: DaemonHeartbeatSnapshot["status"] | "unknown";
     executeLive: boolean;
@@ -134,6 +136,10 @@ export interface AppUiState {
     config: {
       summary: {
         profileName: string;
+        accountMode: AccountMode;
+        accountLabel: string;
+        accountNotes: string;
+        modeHint: string;
         privateKeyMasked: string;
         walletAddress: string;
         funderAddress: string;
@@ -141,6 +147,7 @@ export interface AppUiState {
         strategyDir: string;
         scheduledTaskName: string;
       };
+      accountChecks: AppUiBanner[];
       network: ExecutorAppConfig["network"];
       riskLimits: ExecutorAppConfig["riskLimits"];
       paths: ExecutorAppConfig["paths"];
@@ -201,6 +208,11 @@ export interface AppUiState {
 export interface ExecutorAppConfig {
   version: 1;
   profileName: string;
+  account: {
+    accountMode: AccountMode;
+    label: string;
+    notes: string;
+  };
   credentials: {
     privateKey: string;
     walletAddress: string;
@@ -256,6 +268,7 @@ export interface ApiCreds {
 }
 
 export interface ExecutorConfig {
+  accountMode: AccountMode;
   host: string;
   chainId: number;
   rpcUrl: string;
@@ -284,7 +297,23 @@ export interface ExecutorConfig {
   daemonStopFile: string;
 }
 
+export interface ResolvedAccountContext {
+  accountMode: AccountMode;
+  privateKeyPresent: boolean;
+  walletAddress: `0x${string}`;
+  funderAddress: `0x${string}`;
+  signatureType: SignatureType;
+  derivedDepositWallet?: `0x${string}`;
+  creds: ApiCreds;
+  diagnostics: {
+    usedConfiguredFunder: boolean;
+    derivedFunderMatchesConfigured: boolean | null;
+    modeNote: string;
+  };
+}
+
 export interface SessionContext {
+  accountMode: AccountMode;
   host: string;
   chainId: number;
   rpcUrl: string;
@@ -453,6 +482,7 @@ export interface StrategyDecision {
 
 export interface RuntimeStateV2 {
   session: {
+    accountMode: AccountMode;
     walletAddress: string;
     funderAddress: string;
     signatureType: number;

@@ -17,9 +17,10 @@ function nowIso(): string {
 export function makeDefaultRuntimeState(): RuntimeStateV2 {
   return {
     session: {
+      accountMode: "eoa",
       walletAddress: "",
       funderAddress: "",
-      signatureType: 3,
+      signatureType: 0,
       connected: false,
       updatedAt: "",
     },
@@ -155,6 +156,7 @@ export function applySessionSnapshot(state: RuntimeStateV2, session: SessionCont
   return {
     ...state,
     session: {
+      accountMode: session.accountMode,
       walletAddress: session.walletAddress,
       funderAddress: session.funderAddress,
       signatureType: session.signatureType,

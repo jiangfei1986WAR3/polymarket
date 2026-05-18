@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { ExecutorConfig, SignatureType } from "./types.js";
+import type { AccountMode, ExecutorConfig, SignatureType } from "./types.js";
 
 function requireHexPrivateKey(name: string): `0x${string}` | undefined {
   const value = process.env[name]?.trim();
@@ -19,7 +19,7 @@ function readAddress(name: string): `0x${string}` | undefined {
 }
 
 function readSignatureType(): SignatureType {
-  const raw = Number(process.env.POLYMARKET_SIGNATURE_TYPE ?? "3");
+  const raw = Number(process.env.POLYMARKET_SIGNATURE_TYPE ?? "0");
   if (raw !== 0 && raw !== 1 && raw !== 2 && raw !== 3) {
     throw new Error(`Unsupported POLYMARKET_SIGNATURE_TYPE: ${raw}`);
   }
@@ -34,9 +34,24 @@ function readBooleanEnv(name: string, fallback: boolean): boolean {
   return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
+function readAccountMode(): AccountMode {
+  const value = process.env.POLYMARKET_ACCOUNT_MODE?.trim().toLowerCase();
+  if (!value || value === "eoa" || value === "wallet") {
+    return "eoa";
+  }
+  if (value === "poly_proxy" || value === "email_proxy") {
+    return "poly_proxy";
+  }
+  if (value === "deposit_wallet_1271" || value === "deposit_wallet" || value === "deposit_wallet_flow") {
+    return "deposit_wallet_1271";
+  }
+  throw new Error(`Unsupported POLYMARKET_ACCOUNT_MODE: ${value}`);
+}
+
 export function loadExecutorConfig(): ExecutorConfig {
   const baseDir = process.cwd();
   return {
+    accountMode: readAccountMode(),
     host: process.env.POLYMARKET_HOST ?? "https://clob.polymarket.com",
     chainId: Number(process.env.POLYMARKET_CHAIN_ID ?? "137"),
     rpcUrl: process.env.POLYGON_RPC_URL ?? "https://1rpc.io/matic",

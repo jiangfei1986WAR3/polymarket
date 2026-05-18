@@ -5,7 +5,7 @@ import { ClobClient } from "@polymarket/clob-client-v2";
 import { createWalletClient, http, type WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import type { ApiCreds, ExecutorConfig, SessionContext } from "./types.js";
+import type { ApiCreds, ExecutorConfig, ResolvedAccountContext, SessionContext } from "./types.js";
 
 function normalizeApiCreds(raw: unknown): ApiCreds {
   const data = (raw ?? {}) as Record<string, unknown>;
@@ -61,10 +61,52 @@ export function createRelayClient(config: ExecutorConfig): RelayClient {
   );
 }
 
-export async function resolveSessionContext(config: ExecutorConfig): Promise<SessionContext> {
+function buildModeNote(config: ExecutorConfig): string {
+  if (config.accountMode === "deposit_wallet_1271") {
+    return "Polymarket 邮箱账户新模式，系统会优先使用 deposit wallet 作为真实交易钱包，并以 signatureType=3 走 POLY_1271 下单。";
+  }
+  return config.accountMode === "poly_proxy"
+    ? "Polymarket 邮箱账户模式，使用导出私钥签名，并优先依赖配置中的 proxy funder 地址。"
+    : "EOA 钱包模式，默认使用钱包地址作为 funder，保留当前已验证链路。";
+}
+
+function validateModeSpecificConfig(config: ExecutorConfig): void {
+  if (config.accountMode === "eoa" && config.signatureType !== 0) {
+    throw new Error("EOA 模式要求 signatureType=0，请检查 GUI 配置。");
+  }
+  if (config.accountMode === "poly_proxy") {
+    if (config.signatureType !== 1) {
+      throw new Error("POLY_PROXY 模式要求 signatureType=1，请检查 GUI 配置。");
+    }
+    if (!config.funderAddress) {
+      throw new Error("POLY_PROXY 模式要求显式填写站内 proxy wallet 作为 funderAddress。");
+    }
+  }
+  if (config.accountMode === "deposit_wallet_1271" && config.signatureType !== 3) {
+    throw new Error("DEPOSIT_WALLET_1271 模式要求 signatureType=3，请检查 GUI 配置。");
+  }
+}
+
+function resolveFunderAddress(args: {
+  config: ExecutorConfig;
+  walletAddress: `0x${string}`;
+  derivedFunder: `0x${string}`;
+}): `0x${string}` {
+  const { config, walletAddress, derivedFunder } = args;
+  if (config.funderAddress) {
+    return config.funderAddress;
+  }
+  if (config.accountMode === "deposit_wallet_1271") {
+    return derivedFunder;
+  }
+  return walletAddress;
+}
+
+export async function resolveAccountContext(config: ExecutorConfig): Promise<ResolvedAccountContext> {
   if (!config.privateKey) {
     throw new Error("Missing POLYMARKET_PRIVATE_KEY");
   }
+  validateModeSpecificConfig(config);
 
   const account = privateKeyToAccount(config.privateKey);
   const walletAddress = (config.walletAddress ?? account.address) as `0x${string}`;
@@ -85,25 +127,54 @@ export async function resolveSessionContext(config: ExecutorConfig): Promise<Ses
     contractConfig.DepositWalletContracts.DepositWalletImplementation,
   ) as `0x${string}`;
 
-  const funderAddress = (config.funderAddress ?? derivedFunder) as `0x${string}`;
+  const funderAddress = resolveFunderAddress({
+    config,
+    walletAddress,
+    derivedFunder,
+  });
+  const usedConfiguredFunder = Boolean(config.funderAddress);
+  const derivedFunderMatchesConfigured = config.funderAddress
+    ? config.funderAddress.toLowerCase() === derivedFunder.toLowerCase()
+    : null;
 
-  // Warm the relayer path early so Phase A can fail fast on unsupported accounts.
-  const relayClient = new RelayClient(
-    "https://relayer-v2.polymarket.com/",
-    config.chainId,
-    signer,
-    createRelayerHeaderAdapter(config) as never,
-  );
-  await relayClient.getDeployed(funderAddress, "WALLET").catch(() => undefined);
+  if (config.accountMode === "poly_proxy" && hasRelayerCredentials(config)) {
+    // Probe relayer support for proxy-style funders without blocking EOA startup.
+    const relayClient = new RelayClient(
+      "https://relayer-v2.polymarket.com/",
+      config.chainId,
+      signer,
+      createRelayerHeaderAdapter(config) as never,
+    );
+    await relayClient.getDeployed(funderAddress, "WALLET").catch(() => undefined);
+  }
 
   return {
-    host: config.host,
-    chainId: config.chainId,
-    rpcUrl: config.rpcUrl,
+    accountMode: config.accountMode,
     walletAddress,
     funderAddress,
     signatureType: config.signatureType,
+    derivedDepositWallet: derivedFunder,
     creds,
     privateKeyPresent: true,
+    diagnostics: {
+      usedConfiguredFunder,
+      derivedFunderMatchesConfigured,
+      modeNote: buildModeNote(config),
+    },
+  };
+}
+
+export async function resolveSessionContext(config: ExecutorConfig): Promise<SessionContext> {
+  const resolved = await resolveAccountContext(config);
+  return {
+    accountMode: resolved.accountMode,
+    host: config.host,
+    chainId: config.chainId,
+    rpcUrl: config.rpcUrl,
+    walletAddress: resolved.walletAddress,
+    funderAddress: resolved.funderAddress,
+    signatureType: resolved.signatureType,
+    creds: resolved.creds,
+    privateKeyPresent: resolved.privateKeyPresent,
   };
 }

@@ -28,11 +28,19 @@ const autoPickStrategyButton = document.querySelector("#auto-pick-strategy-butto
 const applyStrategyButton = document.querySelector("#apply-strategy-button");
 const loadConfigButton = document.querySelector("#load-config-button");
 const saveConfigButton = document.querySelector("#save-config-button");
+const validateAccountButton = document.querySelector("#validate-account-button");
+const previewOrderButton = document.querySelector("#preview-order-button");
+const submitTestOrderButton = document.querySelector("#submit-test-order-button");
 const openConfigDirButton = document.querySelector("#open-config-dir-button");
 const openLogsDirButton = document.querySelector("#open-logs-dir-button");
 const openStrategyDirButton = document.querySelector("#open-strategy-dir-button");
+const accountModeHint = document.querySelector("#account-mode-hint");
+const accountCheckList = document.querySelector("#account-check-list");
 const form = {
   profileName: document.querySelector("#profile-name"),
+  accountMode: document.querySelector("#account-mode"),
+  accountLabel: document.querySelector("#account-label"),
+  accountNotes: document.querySelector("#account-notes"),
   privateKey: document.querySelector("#private-key"),
   walletAddress: document.querySelector("#wallet-address"),
   funderAddress: document.querySelector("#funder-address"),
@@ -44,6 +52,9 @@ const form = {
   autoRedeemEnabled: document.querySelector("#auto-redeem-enabled"),
   relayerApiKey: document.querySelector("#relayer-api-key"),
   relayerApiKeyAddress: document.querySelector("#relayer-api-key-address"),
+  previewOutcome: document.querySelector("#preview-outcome"),
+  previewNotional: document.querySelector("#preview-notional"),
+  submitTestConfirm: document.querySelector("#submit-test-confirm"),
   strategySelect: document.querySelector("#strategy-select"),
   maxDailyLossU: document.querySelector("#max-daily-loss-u"),
   maxConsecutiveBlowups: document.querySelector("#max-consecutive-blowups"),
@@ -132,6 +143,40 @@ function friendlyAction(value) {
 
 function friendlyMode(isLive) {
   return isLive ? "真实运行" : "模拟运行";
+}
+
+function friendlyAccountMode(mode) {
+  const map = {
+    eoa: "EOA 钱包模式",
+    poly_proxy: "Polymarket 邮箱账户模式",
+    deposit_wallet_1271: "Polymarket 邮箱账户模式（Deposit Wallet）",
+  };
+  return map[mode] || mode || "未知模式";
+}
+
+function buildAccountModeHint(mode) {
+  if (mode === "deposit_wallet_1271") {
+    return "Polymarket 邮箱账户 Deposit Wallet 模式：私钥填写官网导出的 signer 私钥，walletAddress 填 signer 地址，funderAddress 可留空由系统自动推导，signatureType 固定为 3。";
+  }
+  if (mode === "poly_proxy") {
+    return "Polymarket 邮箱账户模式：私钥填写官网导出的 signer 私钥，walletAddress 填 signer 地址，funderAddress 填站内 proxy wallet 地址，signatureType 固定为 1。";
+  }
+  return "EOA 钱包模式：保留当前老系统用法，通常 walletAddress 与 funderAddress 都填写同一个外部钱包地址，signatureType 固定为 0。";
+}
+
+function syncAccountModeDefaults(force = false) {
+  const mode = form.accountMode.value || "eoa";
+  accountModeHint.textContent = buildAccountModeHint(mode);
+  const expectedSignatureType = mode === "poly_proxy" ? "1" : mode === "deposit_wallet_1271" ? "3" : "0";
+  if (force || !form.signatureType.value || form.signatureType.value === "3") {
+    form.signatureType.value = expectedSignatureType;
+  }
+  if (mode === "eoa" && (force || !form.funderAddress.value.trim())) {
+    form.funderAddress.value = form.walletAddress.value.trim();
+  }
+  if (mode === "deposit_wallet_1271" && force && form.funderAddress.value.trim() === form.walletAddress.value.trim()) {
+    form.funderAddress.value = "";
+  }
 }
 
 function friendlyEventType(value) {
@@ -277,8 +322,8 @@ function renderDetailList(container, entries) {
   }
 }
 
-function renderBanners(banners) {
-  bannerList.innerHTML = "";
+function renderBannerGroup(container, banners) {
+  container.innerHTML = "";
   if (!banners.length) {
     return;
   }
@@ -289,8 +334,12 @@ function renderBanners(banners) {
       `<strong>${banner.title}</strong>` +
       `<div>${banner.detail}</div>` +
       `<div>${banner.suggestedAction}</div>`;
-    bannerList.appendChild(div);
+    container.appendChild(div);
   }
+}
+
+function renderBanners(banners) {
+  renderBannerGroup(bannerList, banners);
 }
 
 function renderIssues(issues) {
@@ -587,10 +636,13 @@ function renderStrategyPanel() {
 function applyConfigToForm(config) {
   latestConfig = config;
   form.profileName.value = config.profileName || "";
+  form.accountMode.value = config.account?.accountMode || "eoa";
+  form.accountLabel.value = config.account?.label || "";
+  form.accountNotes.value = config.account?.notes || "";
   form.privateKey.value = config.credentials.privateKey || "";
   form.walletAddress.value = config.credentials.walletAddress || "";
   form.funderAddress.value = config.credentials.funderAddress || "";
-  form.signatureType.value = String(config.credentials.signatureType ?? 3);
+  form.signatureType.value = String(config.credentials.signatureType ?? 0);
   form.executeLive.value = String(Boolean(config.trading.executeLive));
   form.commitState.value = String(Boolean(config.trading.commitState));
   form.intervalMs.value = String(config.trading.intervalMs ?? 60000);
@@ -609,6 +661,7 @@ function applyConfigToForm(config) {
   form.gammaApiBaseUrl.value = config.network.gammaApiBaseUrl || "";
   form.binanceApiBaseUrl.value = config.network.binanceApiBaseUrl || "";
   form.scheduledTaskName.value = config.windows.scheduledTaskName || "";
+  syncAccountModeDefaults(true);
   syncStrategySelection();
   renderStrategyPanel();
 }
@@ -626,12 +679,18 @@ function buildConfigFromForm() {
   return {
     ...latestConfig,
     profileName: form.profileName.value.trim(),
+    account: {
+      ...latestConfig.account,
+      accountMode: form.accountMode.value,
+      label: form.accountLabel.value.trim(),
+      notes: form.accountNotes.value.trim(),
+    },
     credentials: {
       ...latestConfig.credentials,
       privateKey: form.privateKey.value.trim(),
       walletAddress: form.walletAddress.value.trim(),
       funderAddress: form.funderAddress.value.trim(),
-      signatureType: numberFromInput(form.signatureType.value, 3),
+      signatureType: numberFromInput(form.signatureType.value, 0),
     },
     network: {
       ...latestConfig.network,
@@ -703,17 +762,24 @@ function renderState(state) {
       detail: activeStrategy?.currentStep ? `当前为第 ${activeStrategy.currentStep} 步` : "当前未开新轮，下一轮将从首步金额开始",
     },
     {
+      title: "账户模式",
+      value: friendlyAccountMode(state.overview.accountMode),
+      detail: state.pages.config.summary.modeHint || "请根据当前账户结构确认 signer、funder 和签名类型。",
+    },
+    {
       title: "最近动作",
       value: friendlyAction(state.overview.lastAction),
       detail: state.overview.activeOrderId ? `当前订单：${state.overview.activeOrderId}` : "当前没有活动中的订单",
     },
   ]);
   renderBanners(state.pages.dashboard.banners);
+  renderBannerGroup(accountCheckList, state.pages.config.accountChecks || []);
   renderStatusCards(
     [
       { label: "程序状态", value: friendlyHealth(state.overview.health), tone: state.overview.health === "running" || state.overview.health === "sleeping" ? "good" : state.overview.health === "error" || state.overview.health === "stale" ? "danger" : state.overview.health === "runtime_paused" ? "warning" : "neutral" },
       { label: "运行模式", value: state.overview.executeLive ? "真实运行" : "模拟运行", tone: state.overview.executeLive ? "warning" : "neutral" },
       { label: "轮询间隔", value: `${state.overview.intervalMs} 毫秒`, tone: "neutral" },
+      { label: "账户模式", value: friendlyAccountMode(state.overview.accountMode), tone: "neutral" },
       { label: "暂停状态", value: state.overview.runtimePaused ? "已暂停" : "正常", tone: state.overview.runtimePaused ? "warning" : "good" },
       { label: "最近动作", value: friendlyAction(state.overview.lastAction), tone: "neutral" },
       { label: "当前订单", value: state.overview.activeOrderId || "暂无", tone: state.overview.activeOrderId ? "warning" : "neutral" },
@@ -757,6 +823,66 @@ async function saveConfig() {
   renderState(payload.state);
 }
 
+async function validateAccountReadonly() {
+  const parsed = buildConfigFromForm();
+  const payload = await fetchJson("/api/account/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config: parsed }),
+  });
+  const result = payload.result || {};
+  const summary = {
+    checkedAt: result.checkedAt || "",
+    accountMode: result.accountMode || parsed.account?.accountMode || "eoa",
+    session: result.session || {},
+    diagnostics: result.diagnostics || {},
+    accountSnapshot: result.accountSnapshot || {},
+    market: result.market || null,
+    positions: result.positions || {},
+    suggestions: result.suggestions || [],
+  };
+  actionOutput.textContent = `只读验证成功\n${formatJson(summary)}`;
+  if (payload.state) {
+    renderState(payload.state);
+  }
+}
+
+async function previewTestOrder() {
+  const parsed = buildConfigFromForm();
+  const payload = await fetchJson("/api/order/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      config: parsed,
+      outcome: form.previewOutcome.value || "Up",
+      notional: numberFromInput(form.previewNotional.value, 2),
+    }),
+  });
+  const result = payload.result || {};
+  actionOutput.textContent = `测试单预览成功\n${formatJson(result)}`;
+  if (payload.state) {
+    renderState(payload.state);
+  }
+}
+
+async function submitControlledTestOrder() {
+  const parsed = buildConfigFromForm();
+  const payload = await fetchJson("/api/order/submit-test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      config: parsed,
+      outcome: form.previewOutcome.value || "Up",
+      notional: numberFromInput(form.previewNotional.value, 2),
+      confirmed: Boolean(form.submitTestConfirm.checked),
+    }),
+  });
+  actionOutput.textContent = `真实测试单已提交\n${formatJson(payload.result || {})}`;
+  if (payload.state) {
+    renderState(payload.state);
+  }
+}
+
 async function postAction(url, body = {}) {
   const payload = await fetchJson(url, {
     method: "POST",
@@ -790,6 +916,52 @@ saveConfigButton.addEventListener("click", async () => {
     await loadPaths();
   } catch (error) {
     actionOutput.textContent = `保存失败\n${error instanceof Error ? error.message : String(error)}`;
+  }
+});
+
+validateAccountButton.addEventListener("click", async () => {
+  try {
+    validateAccountButton.disabled = true;
+    actionOutput.textContent = "正在执行只读验证，请稍等...";
+    await validateAccountReadonly();
+  } catch (error) {
+    actionOutput.textContent = `只读验证失败\n${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    validateAccountButton.disabled = false;
+  }
+});
+
+previewOrderButton.addEventListener("click", async () => {
+  try {
+    previewOrderButton.disabled = true;
+    actionOutput.textContent = "正在生成测试单预览，请稍等...";
+    await previewTestOrder();
+  } catch (error) {
+    actionOutput.textContent = `测试单预览失败\n${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    previewOrderButton.disabled = false;
+  }
+});
+
+submitTestOrderButton.addEventListener("click", async () => {
+  try {
+    submitTestOrderButton.disabled = true;
+    actionOutput.textContent = "正在提交小额真实测试单，请稍等...";
+    await submitControlledTestOrder();
+  } catch (error) {
+    actionOutput.textContent = `提交小额测试单失败\n${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    submitTestOrderButton.disabled = false;
+  }
+});
+
+form.accountMode.addEventListener("change", () => {
+  syncAccountModeDefaults(true);
+});
+
+form.walletAddress.addEventListener("input", () => {
+  if ((form.accountMode.value || "eoa") === "eoa" && !form.funderAddress.value.trim()) {
+    form.funderAddress.value = form.walletAddress.value.trim();
   }
 });
 

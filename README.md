@@ -6,6 +6,8 @@
 - `polymarket_martingale_system_dev_doc.md`
 - `polymarket_martingale_handoff_2026-05-15.md`
 - `polymarket_server_recovery_guide.md`
+- `polymarket_email_account_mode_design_2026-05-17.md`
+- `polymarket_email_deposit_wallet_success_2026-05-18.md`
 
 ## 快速开始（研究 / 回测工具）
 
