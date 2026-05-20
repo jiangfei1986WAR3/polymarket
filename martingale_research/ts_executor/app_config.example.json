@@ -3,8 +3,8 @@
   "profileName": "default-windows-profile",
   "credentials": {
     "privateKey": "0x1111111111111111111111111111111111111111111111111111111111111111",
-    "walletAddress": "0x1111111111111111111111111111111111111111",
-    "funderAddress": "0x2222222222222222222222222222222222222222",
+    "walletAddress": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+    "funderAddress": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
     "signatureType": 3
   },
   "network": {
@@ -24,7 +24,7 @@
     "baseStakeU": 2
   },
   "redemption": {
-    "autoRedeemEnabled": true,
+    "autoRedeemEnabled": false,
     "relayerApiKey": "",
     "relayerApiKeyAddress": ""
   },

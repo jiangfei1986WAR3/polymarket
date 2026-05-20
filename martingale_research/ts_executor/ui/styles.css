@@ -216,6 +216,18 @@ body {
   margin-bottom: 12px;
 }
 
+.checkbox-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.checkbox-line input {
+  margin-top: 3px;
+}
+
 .issue-list {
   display: grid;
   gap: 8px;

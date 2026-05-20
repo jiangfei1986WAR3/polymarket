@@ -1,6 +1,7 @@
 import { Side } from "@polymarket/clob-client-v2";
 import { getCollateralSnapshot } from "./account.js";
 import { pathToFileURL } from "node:url";
+import { applyAppConfigFileToProcessEnv } from "./app_config.js";
 import { attemptAutoRedeemWinningPosition, type AutoRedeemAttemptResult } from "./auto_redeem.js";
 import { fetchRecentClosedBinance1hCandles, recentStateString } from "./binance_state.js";
 import { reconcileExecutionForOrder } from "./execution_reconciler.js";
@@ -11,6 +12,7 @@ import { appendExecutionEvent } from "./logger.js";
 import { locateCurrentBtc1hMarket } from "./market_locator.js";
 import { cancelOrder, getOrderSnapshot, postLimitOrder } from "./orders.js";
 import { pauseRuntimeState, resumeRuntimeState } from "./pause_controller.js";
+import { getPositionsSnapshot } from "./positions.js";
 import {
   applyOutcomeToRisk,
   clearApiFailureCounter,
@@ -21,19 +23,23 @@ import {
 import {
   applyAccountSnapshot,
   applyOrderSnapshot,
+  applyPositionSnapshot,
   applyRedemptionState,
   applyRiskState,
   applyRunState,
   applySessionSnapshot,
+  applyTradeSnapshot,
   loadRuntimeState,
   saveRuntimeState,
 } from "./state.js";
 import { evaluateStrategyDecision } from "./state_gate.js";
 import { loadStrategyBundle } from "./strategy_loader.js";
+import { getTradesForOrder } from "./trades.js";
 import type { CandleSnapshot, ExecutionReconciliation, OrderIntent, RuntimeStateV2, StrategyConfigBundle } from "./types.js";
 
 interface CliArgs {
   at?: string;
+  configFile?: string;
   execute: boolean;
   commitState: boolean;
   force: boolean;
@@ -49,8 +55,12 @@ export interface HourlyDaemonRunOptions {
 
 export type HourlyDaemonResult = Record<string, unknown>;
 
+const POSITION_REFRESH_ATTEMPTS = 4;
+const POSITION_REFRESH_DELAYS_MS = [0, 1200, 2500, 5000] as const;
+
 function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = {
+    configFile: undefined,
     execute: false,
     commitState: false,
     force: false,
@@ -62,6 +72,10 @@ function parseArgs(argv: string[]): CliArgs {
     const arg = argv[i];
     const next = argv[i + 1];
     switch (arg) {
+      case "--config":
+        out.configFile = next;
+        i += 1;
+        break;
       case "--at":
         out.at = next;
         i += 1;
@@ -100,6 +114,7 @@ function parseArgs(argv: string[]): CliArgs {
 function printHelp(): void {
   console.log("Usage:");
   console.log("  npm run hourly-daemon --");
+  console.log("  npm run hourly-daemon -- --config .\\app_config.json");
   console.log("  npm run hourly-daemon -- --commit-state");
   console.log("  npm run hourly-daemon -- --execute --order-type FOK");
   console.log("");
@@ -109,6 +124,12 @@ function printHelp(): void {
   console.log("  - Use --execute to place a live order and persist state.");
   console.log("  - Default live order type is FOK to avoid stale resting orders.");
   console.log("  - Use --force to bypass the already-processed hourly guard.");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function emitResult(result: HourlyDaemonResult, printOutput: boolean): HourlyDaemonResult {
@@ -224,6 +245,28 @@ function isAcceptedEntryStatus(status: string): boolean {
     normalized === "MINED" ||
     normalized === "CONFIRMED"
   );
+}
+
+async function getFreshPositionSnapshot(
+  config: ReturnType<typeof loadExecutorConfig>,
+  session: Awaited<ReturnType<typeof resolveSessionContext>>,
+  tokenId: string,
+  expectFreshFill: boolean,
+) {
+  for (let attempt = 0; attempt < POSITION_REFRESH_ATTEMPTS; attempt += 1) {
+    const delayMs =
+      POSITION_REFRESH_DELAYS_MS[attempt] ??
+      POSITION_REFRESH_DELAYS_MS[POSITION_REFRESH_DELAYS_MS.length - 1];
+    if (attempt > 0 || expectFreshFill) {
+      await sleep(delayMs);
+    }
+    const snapshot = await getPositionsSnapshot(config, session, tokenId);
+    if (!expectFreshFill || snapshot.size > 0 || attempt === POSITION_REFRESH_ATTEMPTS - 1) {
+      return snapshot;
+    }
+  }
+
+  return getPositionsSnapshot(config, session, tokenId);
 }
 
 function isMissedEntryError(error: unknown): boolean {
@@ -567,6 +610,9 @@ export async function runHourlyDaemon(options: HourlyDaemonRunOptions = {}): Pro
   if (cli.help) {
     printHelp();
     return emitResult({ mode: "help" }, printOutput);
+  }
+  if (cli.configFile) {
+    applyAppConfigFileToProcessEnv(cli.configFile);
   }
 
   const config = loadExecutorConfig();
@@ -1026,8 +1072,23 @@ export async function runHourlyDaemon(options: HourlyDaemonRunOptions = {}): Pro
 
     let orderSnapshot = orderId ? await getOrderSnapshot(client, orderId) : null;
     if (orderSnapshot) {
-      runtimeState = applyOrderSnapshot(runtimeState, orderSnapshot);
+      runtimeState = applyOrderSnapshot(runtimeState, orderSnapshot, {
+        conditionId: market?.conditionId,
+      });
     }
+
+    const tradeSnapshot = orderId ? await getTradesForOrder(client, orderId, session.funderAddress) : null;
+    if (tradeSnapshot) {
+      runtimeState = applyTradeSnapshot(runtimeState, tradeSnapshot);
+    }
+
+    const positionSnapshot = await getFreshPositionSnapshot(
+      config,
+      session,
+      orderSnapshot?.tokenId || orderIntent.tokenId,
+      Boolean(tradeSnapshot?.count || String(postResult.status ?? "").toLowerCase() === "matched"),
+    );
+    runtimeState = applyPositionSnapshot(runtimeState, positionSnapshot);
 
     if (orderSnapshot && isOpenOrderStatus(orderSnapshot.status)) {
       try {
@@ -1041,7 +1102,9 @@ export async function runHourlyDaemon(options: HourlyDaemonRunOptions = {}): Pro
           payload: cancelResult,
         });
         orderSnapshot = await getOrderSnapshot(client, orderId);
-        runtimeState = applyOrderSnapshot(runtimeState, orderSnapshot);
+        runtimeState = applyOrderSnapshot(runtimeState, orderSnapshot, {
+          conditionId: market?.conditionId,
+        });
       } catch (error) {
         appendExecutionEvent(config.eventsLogFile, {
           timestamp: nowIso(),
@@ -1053,7 +1116,16 @@ export async function runHourlyDaemon(options: HourlyDaemonRunOptions = {}): Pro
       }
     }
 
-    if (!orderId || (orderSnapshot && !isOpenOrderStatus(orderSnapshot.status) && !isAcceptedEntryStatus(orderSnapshot.status))) {
+    const hasConfirmedEntryEvidence = Boolean(
+      tradeSnapshot?.count || positionSnapshot.size > 0,
+    );
+    if (
+      !orderId ||
+      (orderSnapshot &&
+        !isOpenOrderStatus(orderSnapshot.status) &&
+        !isAcceptedEntryStatus(orderSnapshot.status) &&
+        !hasConfirmedEntryEvidence)
+    ) {
       const missedReason = !orderId
         ? "本小时订单未生成可跟踪的 orderId，视为未成交并中止本轮。"
         : `本小时订单未形成可持续持有的入场结果（status=${orderSnapshot?.status || "unknown"}），本轮中止。`;
@@ -1078,6 +1150,8 @@ export async function runHourlyDaemon(options: HourlyDaemonRunOptions = {}): Pro
           orderIntent,
           postResult,
           orderSnapshot,
+          tradeSnapshot,
+          positionSnapshot,
         },
       });
       return emitResult(

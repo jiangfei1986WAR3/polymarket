@@ -1,3 +1,4 @@
+import { AssetType } from "@polymarket/clob-client-v2";
 import type { ClobClient } from "@polymarket/clob-client-v2";
 
 import type { AccountSnapshot, SessionContext } from "./types.js";
@@ -34,4 +35,10 @@ export async function getCollateralSnapshot(
     timestamp: nowIso(),
     raw,
   };
+}
+
+export async function syncCollateralAllowance(client: ClobClient): Promise<void> {
+  await client.updateBalanceAllowance({
+    asset_type: AssetType.COLLATERAL,
+  });
 }

@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { privateKeyToAccount } from "viem/accounts";
 
-import type { AppConfigValidationIssue, ExecutorAppConfig, ExecutorConfig, SignatureType } from "./types.js";
+import type { AccountMode, AppConfigValidationIssue, ExecutorAppConfig, ExecutorConfig, SignatureType } from "./types.js";
+
+const DEFAULT_PLACEHOLDER_PRIVATE_KEY = "0x1111111111111111111111111111111111111111111111111111111111111111";
+const DEFAULT_PLACEHOLDER_SIGNER_ADDRESS = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
 
 function maskSecret(value: string, keepStart = 6, keepEnd = 4): string {
   if (!value) {
@@ -25,16 +29,58 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//.test(value);
 }
 
+function doesPrivateKeyMatchWalletAddress(privateKey: string, walletAddress: string): boolean {
+  if (!isHexPrivateKey(privateKey) || !isHexAddress(walletAddress)) {
+    return false;
+  }
+  return privateKeyToAccount(privateKey as `0x${string}`).address.toLowerCase() === walletAddress.toLowerCase();
+}
+
+function normalizeAccountMode(value: string | undefined): AccountMode {
+  if (!value || value === "eoa" || value === "wallet") {
+    return "eoa";
+  }
+  if (value === "poly_proxy" || value === "email_proxy") {
+    return "poly_proxy";
+  }
+  if (
+    value === "deposit_wallet_1271" ||
+    value === "deposit_wallet" ||
+    value === "deposit_wallet_flow"
+  ) {
+    return "deposit_wallet_1271";
+  }
+  throw new Error(`Unsupported accountMode: ${value}`);
+}
+
+function isAccountMode(value: string): value is AccountMode {
+  return value === "eoa" || value === "poly_proxy" || value === "deposit_wallet_1271";
+}
+
+function getAccountModeHint(mode: AccountMode): string {
+  if (mode === "deposit_wallet_1271") {
+    return "Polymarket 邮箱账户新模式：walletAddress 填导出私钥对应 signer 地址，funderAddress 可留空由系统自动推导 deposit wallet，signatureType 固定为 3。";
+  }
+  return mode === "poly_proxy"
+    ? "Polymarket 邮箱账户模式：请填写导出私钥对应 signer 地址，并把站内 proxy wallet 填到 funderAddress。"
+    : "EOA 钱包模式：保留当前老系统用法，walletAddress 与 funderAddress 通常填写同一个外部钱包地址。";
+}
+
 export function makeDefaultAppConfig(baseDir = process.cwd()): ExecutorAppConfig {
   const runtimeDir = path.join(baseDir, "runtime_state");
   return {
     version: 1,
     profileName: "default-windows-profile",
+    account: {
+      accountMode: "eoa",
+      label: "default-eoa-profile",
+      notes: "",
+    },
     credentials: {
-      privateKey: "0x1111111111111111111111111111111111111111111111111111111111111111",
-      walletAddress: "0x1111111111111111111111111111111111111111",
-      funderAddress: "0x2222222222222222222222222222222222222222",
-      signatureType: 3,
+      privateKey: DEFAULT_PLACEHOLDER_PRIVATE_KEY,
+      walletAddress: DEFAULT_PLACEHOLDER_SIGNER_ADDRESS,
+      funderAddress: DEFAULT_PLACEHOLDER_SIGNER_ADDRESS,
+      signatureType: 0,
     },
     network: {
       host: "https://clob.polymarket.com",
@@ -53,7 +99,7 @@ export function makeDefaultAppConfig(baseDir = process.cwd()): ExecutorAppConfig
       baseStakeU: 2,
     },
     redemption: {
-      autoRedeemEnabled: true,
+      autoRedeemEnabled: false,
       relayerApiKey: "",
       relayerApiKeyAddress: "",
     },
@@ -97,6 +143,11 @@ export function loadAppConfig(filePath: string): ExecutorAppConfig {
   return {
     ...base,
     ...parsed,
+    account: {
+      ...base.account,
+      ...(parsed.account ?? {}),
+      accountMode: normalizeAccountMode(parsed.account?.accountMode),
+    },
     credentials: {
       ...base.credentials,
       ...(parsed.credentials ?? {}),
@@ -153,6 +204,10 @@ export function validateAppConfig(config: ExecutorAppConfig): AppConfigValidatio
     push("version", "must equal 1");
   }
   expectNonEmpty("profileName", config.profileName);
+  if (!isAccountMode(config.account.accountMode)) {
+    push("account.accountMode", "must be one of eoa, poly_proxy, deposit_wallet_1271");
+  }
+  expectNonEmpty("account.label", config.account.label);
 
   if (!isHexPrivateKey(config.credentials.privateKey)) {
     push("credentials.privateKey", "must be a 0x-prefixed 32-byte hex private key");
@@ -160,11 +215,37 @@ export function validateAppConfig(config: ExecutorAppConfig): AppConfigValidatio
   if (!isHexAddress(config.credentials.walletAddress)) {
     push("credentials.walletAddress", "must be a 0x-prefixed 20-byte hex address");
   }
-  if (!isHexAddress(config.credentials.funderAddress)) {
+  if (
+    isHexPrivateKey(config.credentials.privateKey) &&
+    isHexAddress(config.credentials.walletAddress) &&
+    !doesPrivateKeyMatchWalletAddress(config.credentials.privateKey, config.credentials.walletAddress)
+  ) {
+    push(
+      "credentials.walletAddress",
+      "must match the address derived from credentials.privateKey",
+    );
+  }
+  const funderProvided = config.credentials.funderAddress.trim().length > 0;
+  if (funderProvided && !isHexAddress(config.credentials.funderAddress)) {
     push("credentials.funderAddress", "must be a 0x-prefixed 20-byte hex address");
   }
   if (![0, 1, 2, 3].includes(config.credentials.signatureType)) {
     push("credentials.signatureType", "must be one of 0, 1, 2, 3");
+  }
+  if (config.account.accountMode === "eoa" && config.credentials.signatureType !== 0) {
+    push("credentials.signatureType", "must be 0 when account.accountMode is eoa");
+  }
+  if (config.account.accountMode === "poly_proxy" && config.credentials.signatureType !== 1) {
+    push("credentials.signatureType", "must be 1 when account.accountMode is poly_proxy");
+  }
+  if (config.account.accountMode === "poly_proxy" && !config.credentials.funderAddress.trim()) {
+    push("credentials.funderAddress", "must not be empty when account.accountMode is poly_proxy");
+  }
+  if (config.account.accountMode === "deposit_wallet_1271" && config.credentials.signatureType !== 3) {
+    push("credentials.signatureType", "must be 3 when account.accountMode is deposit_wallet_1271");
+  }
+  if (config.account.accountMode === "eoa" && !config.credentials.funderAddress.trim()) {
+    push("credentials.funderAddress", "must not be empty when account.accountMode is eoa");
   }
 
   if (!isHttpUrl(config.network.host)) {
@@ -215,6 +296,8 @@ export function summarizeAppConfig(config: ExecutorAppConfig) {
   return {
     version: config.version,
     profileName: config.profileName,
+    account: config.account,
+    accountModeHint: getAccountModeHint(config.account.accountMode),
     credentials: {
       privateKeyMasked: maskSecret(config.credentials.privateKey, 8, 6),
       walletAddress: config.credentials.walletAddress,
@@ -236,6 +319,7 @@ export function summarizeAppConfig(config: ExecutorAppConfig) {
 
 export function buildEnvOverridesFromAppConfig(config: ExecutorAppConfig): Record<string, string> {
   return {
+    POLYMARKET_ACCOUNT_MODE: config.account.accountMode,
     POLYMARKET_HOST: config.network.host,
     POLYMARKET_CHAIN_ID: String(config.network.chainId),
     POLYGON_RPC_URL: config.network.rpcUrl,
@@ -265,8 +349,25 @@ export function buildEnvOverridesFromAppConfig(config: ExecutorAppConfig): Recor
   };
 }
 
+export function applyAppConfigFileToProcessEnv(filePath: string): ExecutorAppConfig {
+  const config = loadAppConfig(filePath);
+  const issues = validateAppConfig(config);
+  if (issues.length > 0) {
+    const details = issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
+    throw new Error(`Invalid app config: ${details}`);
+  }
+
+  const envOverrides = buildEnvOverridesFromAppConfig(config);
+  for (const [key, value] of Object.entries(envOverrides)) {
+    process.env[key] = value;
+  }
+
+  return config;
+}
+
 export function buildExecutorConfigFromAppConfig(config: ExecutorAppConfig): ExecutorConfig {
   return {
+    accountMode: config.account.accountMode,
     host: config.network.host,
     chainId: config.network.chainId,
     rpcUrl: config.network.rpcUrl,
@@ -284,7 +385,7 @@ export function buildExecutorConfigFromAppConfig(config: ExecutorAppConfig): Exe
     maxApiFailures: config.riskLimits.maxApiFailures,
     privateKey: config.credentials.privateKey as `0x${string}`,
     walletAddress: config.credentials.walletAddress as `0x${string}`,
-    funderAddress: config.credentials.funderAddress as `0x${string}`,
+    funderAddress: (config.credentials.funderAddress.trim() || undefined) as `0x${string}` | undefined,
     signatureType: config.credentials.signatureType,
     stateFile: config.paths.stateFile,
     eventsLogFile: config.paths.eventsLogFile,

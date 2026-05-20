@@ -28,11 +28,19 @@ const autoPickStrategyButton = document.querySelector("#auto-pick-strategy-butto
 const applyStrategyButton = document.querySelector("#apply-strategy-button");
 const loadConfigButton = document.querySelector("#load-config-button");
 const saveConfigButton = document.querySelector("#save-config-button");
+const validateAccountButton = document.querySelector("#validate-account-button");
+const previewOrderButton = document.querySelector("#preview-order-button");
+const submitTestOrderButton = document.querySelector("#submit-test-order-button");
 const openConfigDirButton = document.querySelector("#open-config-dir-button");
 const openLogsDirButton = document.querySelector("#open-logs-dir-button");
 const openStrategyDirButton = document.querySelector("#open-strategy-dir-button");
+const accountModeHint = document.querySelector("#account-mode-hint");
+const accountCheckList = document.querySelector("#account-check-list");
 const form = {
   profileName: document.querySelector("#profile-name"),
+  accountMode: document.querySelector("#account-mode"),
+  accountLabel: document.querySelector("#account-label"),
+  accountNotes: document.querySelector("#account-notes"),
   privateKey: document.querySelector("#private-key"),
   walletAddress: document.querySelector("#wallet-address"),
   funderAddress: document.querySelector("#funder-address"),
@@ -44,6 +52,9 @@ const form = {
   autoRedeemEnabled: document.querySelector("#auto-redeem-enabled"),
   relayerApiKey: document.querySelector("#relayer-api-key"),
   relayerApiKeyAddress: document.querySelector("#relayer-api-key-address"),
+  previewOutcome: document.querySelector("#preview-outcome"),
+  previewNotional: document.querySelector("#preview-notional"),
+  submitTestConfirm: document.querySelector("#submit-test-confirm"),
   strategySelect: document.querySelector("#strategy-select"),
   maxDailyLossU: document.querySelector("#max-daily-loss-u"),
   maxConsecutiveBlowups: document.querySelector("#max-consecutive-blowups"),
@@ -81,6 +92,33 @@ function numberFromInput(value, fallback = 0) {
 
 function formatJson(value) {
   return JSON.stringify(value, null, 2);
+}
+
+function formatIssueList(issues) {
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return "";
+  }
+  return issues
+    .map((issue) => {
+      const path = String(issue?.path || "").trim();
+      const message = String(issue?.message || "").trim();
+      return path && message ? `- ${path}: ${message}` : path || message;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildApiErrorMessage(url, payload) {
+  const issueText = formatIssueList(payload?.issues);
+  if (url.includes("/api/config/save")) {
+    const detail = issueText || payload?.error || formatJson(payload);
+    return (
+      `配置校验未通过\n${detail}\n\n` +
+      "说明：本次保存没有写入配置文件。页面顶部账户检查和横幅仍显示上一次成功保存的配置，" +
+      "不代表您当前表单里的私钥、walletAddress 或其他字段也一定有同样问题。请先修正以上校验项，再重新保存。"
+    );
+  }
+  return issueText || payload?.error || formatJson(payload);
 }
 
 function computeStake(baseStakeU, step) {
@@ -132,6 +170,40 @@ function friendlyAction(value) {
 
 function friendlyMode(isLive) {
   return isLive ? "真实运行" : "模拟运行";
+}
+
+function friendlyAccountMode(mode) {
+  const map = {
+    eoa: "EOA 钱包模式",
+    poly_proxy: "Polymarket 邮箱账户模式",
+    deposit_wallet_1271: "Polymarket 邮箱账户模式（Deposit Wallet）",
+  };
+  return map[mode] || mode || "未知模式";
+}
+
+function buildAccountModeHint(mode) {
+  if (mode === "deposit_wallet_1271") {
+    return "Polymarket 邮箱账户 Deposit Wallet 模式：私钥填写官网导出的 signer 私钥，walletAddress 填 signer 地址，funderAddress 可留空由系统自动推导，signatureType 固定为 3。";
+  }
+  if (mode === "poly_proxy") {
+    return "Polymarket 邮箱账户模式：私钥填写官网导出的 signer 私钥，walletAddress 填 signer 地址，funderAddress 填站内 proxy wallet 地址，signatureType 固定为 1。";
+  }
+  return "EOA 钱包模式：保留当前老系统用法，通常 walletAddress 与 funderAddress 都填写同一个外部钱包地址，signatureType 固定为 0。";
+}
+
+function syncAccountModeDefaults(force = false) {
+  const mode = form.accountMode.value || "eoa";
+  accountModeHint.textContent = buildAccountModeHint(mode);
+  const expectedSignatureType = mode === "poly_proxy" ? "1" : mode === "deposit_wallet_1271" ? "3" : "0";
+  if (force || !form.signatureType.value || form.signatureType.value === "3") {
+    form.signatureType.value = expectedSignatureType;
+  }
+  if (mode === "eoa" && (force || !form.funderAddress.value.trim())) {
+    form.funderAddress.value = form.walletAddress.value.trim();
+  }
+  if (mode === "deposit_wallet_1271" && force && form.funderAddress.value.trim() === form.walletAddress.value.trim()) {
+    form.funderAddress.value = "";
+  }
 }
 
 function friendlyEventType(value) {
@@ -234,7 +306,7 @@ async function fetchJson(url, options) {
   const response = await fetch(url, options);
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload.error || formatJson(payload));
+    throw new Error(buildApiErrorMessage(url, payload));
   }
   return payload;
 }
@@ -277,8 +349,8 @@ function renderDetailList(container, entries) {
   }
 }
 
-function renderBanners(banners) {
-  bannerList.innerHTML = "";
+function renderBannerGroup(container, banners) {
+  container.innerHTML = "";
   if (!banners.length) {
     return;
   }
@@ -289,8 +361,12 @@ function renderBanners(banners) {
       `<strong>${banner.title}</strong>` +
       `<div>${banner.detail}</div>` +
       `<div>${banner.suggestedAction}</div>`;
-    bannerList.appendChild(div);
+    container.appendChild(div);
   }
+}
+
+function renderBanners(banners) {
+  renderBannerGroup(bannerList, banners);
 }
 
 function renderIssues(issues) {
@@ -390,6 +466,10 @@ function pickRecommendedStrategy() {
   return latestStrategyOptions.find((entry) => entry.recommended) || null;
 }
 
+function pickLiveRecommendedStrategy() {
+  return latestStrategyOptions.find((entry) => entry.liveRecommended) || null;
+}
+
 function sortCandidatesForDisplay(entries) {
   return [...(entries || [])].sort((a, b) => {
     if (a.recommended !== b.recommended) {
@@ -402,16 +482,65 @@ function sortCandidatesForDisplay(entries) {
   });
 }
 
+function sortLiveCandidatesForDisplay(entries) {
+  const sourceRank = (entry) => {
+    if (entry.sourceKind === "auto") {
+      return 0;
+    }
+    if (entry.sourceKind === "temp") {
+      return 1;
+    }
+    return 2;
+  };
+  return [...(entries || [])].sort((a, b) => {
+    if (a.liveRecommended !== b.liveRecommended) {
+      return a.liveRecommended ? -1 : 1;
+    }
+    if (a.liveEligible !== b.liveEligible) {
+      return a.liveEligible ? -1 : 1;
+    }
+    const sourceDiff = sourceRank(a) - sourceRank(b);
+    if (sourceDiff !== 0) {
+      return sourceDiff;
+    }
+    return Number(b.recommendationScore || Number.NEGATIVE_INFINITY) - Number(a.recommendationScore || Number.NEGATIVE_INFINITY);
+  });
+}
+
+function describeStrategySourceKind(entry) {
+  if (entry.sourceKind === "auto") {
+    return "正式 auto 候选";
+  }
+  if (entry.sourceKind === "temp") {
+    return "临时研究目录";
+  }
+  return "历史/手工目录";
+}
+
 function renderStrategyCenterSummary(strategyPage) {
   const summary = strategyPage.summary;
-  const referenceStrategy = (strategyPage.available || []).find((entry) => entry.recommended) || strategyPage.available?.[0] || null;
+  const referenceStrategy = pickRecommendedStrategy() || strategyPage.available?.[0] || null;
+  const liveRecommended = pickLiveRecommendedStrategy();
   const visibleCount = Math.min((strategyPage.available || []).length, 6);
   strategyCenterSummary.textContent =
-    `当前已读取 ${summary.candidateCount} 套候选策略；当前运行中：${summary.runningVersion || "尚未运行"}；` +
-    `下次生效：${summary.pendingVersion || summary.selectedVersion || "未识别"}；系统推荐：${summary.recommendedVersion || "暂无推荐"}；页面当前展示前 ${visibleCount} 名候选。`;
+    `当前已读取 ${summary.candidateCount} 套候选策略，其中满足实盘门槛的有 ${summary.liveEligibleCount} 套；` +
+    `当前运行中：${summary.runningVersion || "尚未运行"}；下次生效：${summary.pendingVersion || summary.selectedVersion || "未识别"}；` +
+    `研究推荐：${summary.recommendedVersion || "暂无推荐"}；实盘推荐：${summary.liveRecommendedVersion || "暂无符合门槛的候选"}；页面每个榜单默认展示前 ${visibleCount} 名。`;
   renderDetailList(strategySourceNote, [
     { label: "候选策略目录", value: summary.strategyRoot || "-" },
     { label: "候选策略来源", value: summary.sourceNote || "当前暂无来源说明" },
+    {
+      label: "研究推荐",
+      value: summary.recommendedVersion || "暂无推荐",
+      extra: "研究推荐沿用当前综合评分规则，主要用于研究筛选，不等于现在直接实盘的唯一答案。",
+    },
+    {
+      label: "实盘推荐",
+      value: summary.liveRecommendedVersion || "暂无符合门槛的候选",
+      extra: liveRecommended
+        ? `当前按 blowup=0、walk-forward 步数>=3、样本外收益为正，并优先 auto 正式候选的规则筛出。当前来源：${describeStrategySourceKind(liveRecommended)}。`
+        : "当前没有同时满足实盘门槛的候选，请继续重算或放宽门槛后再比较。",
+    },
     {
       label: "这些指标怎么看",
       value: "样本外总收益、总爆仓次数、最大回撤，都是 walk-forward 样本外测试阶段的历史统计，不等于未来年化收益，也不等于未来实盘回撤上限。",
@@ -437,52 +566,97 @@ function renderCandidateMetric(label, value, note) {
   );
 }
 
+function buildCandidateCard(entry, options = {}) {
+  const walkForward = entry.walkForward;
+  const walkForwardStepNote = walkForward
+    ? `本次样本外一共切成 ${walkForward.nSteps} 段；每段按 ${entry.stepDays} 天滚动，步数越多参考性越强。`
+    : "当前缺少 walk-forward 摘要，所以还看不出样本外分成了几段。";
+  const description = options.description || entry.recommendationReason;
+  return (
+    `<div class="candidate-head">` +
+    `<div>` +
+    `<div class="candidate-title">${entry.label}</div>` +
+    `<div class="candidate-description">${description}</div>` +
+    `</div>` +
+    `<div class="candidate-tags">` +
+    `${entry.selected ? '<span class="candidate-tag info">当前启用</span>' : ""}` +
+    `${entry.recommended ? '<span class="candidate-tag good">研究推荐</span>' : ""}` +
+    `${entry.liveRecommended ? '<span class="candidate-tag good">实盘推荐</span>' : ""}` +
+    `${entry.liveEligible ? '<span class="candidate-tag info">实盘可用</span>' : '<span class="candidate-tag">仅研究参考</span>'}` +
+    `<span class="candidate-tag">${describeStrategySourceKind(entry)}</span>` +
+    `<span class="candidate-tag">coverage ${formatPercent(entry.coverageTarget)}</span>` +
+    `<span class="candidate-tag">${entry.pattern}</span>` +
+    `</div>` +
+    `</div>` +
+    `<div class="candidate-metrics">` +
+    renderCandidateMetric("样本外总收益", walkForward ? `${walkForward.totalPnlU.toFixed(2)} U` : "-", "训练完成后，在样本外测试区间累计得到的模拟收益，不等于未来年化收益。") +
+    renderCandidateMetric("总爆仓次数", walkForward ? walkForward.totalBlowups : "-", "样本外测试里，马丁一路打到最大步数仍未回本的次数；越少越稳。") +
+    renderCandidateMetric("最大回撤", walkForward ? `${walkForward.maxStepDrawdownU.toFixed(2)} U` : "-", "样本外测试期间出现过的最大历史回撤，不是未来实盘回撤上限。") +
+    renderCandidateMetric("allowed_states", entry.allowedStatesCount, "允许开新一轮马丁的状态数量；越多通常意味着触发更频繁。") +
+    `</div>` +
+    `<div class="candidate-metrics">` +
+    renderCandidateMetric("walk-forward 步数", walkForward ? walkForward.nSteps : "-", walkForwardStepNote) +
+    renderCandidateMetric("盈利周数", walkForward ? walkForward.profitableSteps : "-", "样本外分段里最终赚钱的段数；它和总收益要一起看，不能单独代表好坏。") +
+    renderCandidateMetric("亏损周数", walkForward ? walkForward.losingSteps : "-", "样本外分段里最终亏钱的段数；如果很多，说明稳定性还不够。") +
+    renderCandidateMetric("实盘状态", entry.liveEligible ? "通过" : "未通过", entry.liveRecommendationReason || "当前暂无实盘门槛说明。") +
+    `</div>` +
+    `<div class="candidate-actions">` +
+    `<button type="button" data-action="select-candidate" data-dir="${entry.dir}">${entry.selected ? "当前已启用" : "设为当前策略"}</button>` +
+    `</div>`
+  );
+}
+
+function renderCandidateSection(container, title, entries, emptyText, options = {}) {
+  const heading = document.createElement("div");
+  heading.className = "panel-subtitle";
+  heading.textContent = title;
+  container.appendChild(heading);
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "info-strip";
+    empty.textContent = emptyText;
+    container.appendChild(empty);
+    return;
+  }
+  for (const entry of entries) {
+    const div = document.createElement("div");
+    div.className = `candidate-card${entry.selected ? " selected" : ""}${entry.recommended ? " recommended" : ""}`;
+    div.innerHTML = buildCandidateCard(entry, options);
+    container.appendChild(div);
+  }
+}
+
 function renderCandidateStrategies(strategyPage) {
   candidateStrategyList.innerHTML = "";
   const rankedEntries = sortCandidatesForDisplay(strategyPage.available || []);
-  const displayEntries = rankedEntries.slice(0, 6);
-  for (const entry of displayEntries) {
-    const div = document.createElement("div");
-    div.className = `candidate-card${entry.selected ? " selected" : ""}${entry.recommended ? " recommended" : ""}`;
-    const walkForward = entry.walkForward;
-    const walkForwardStepNote = walkForward
-      ? `本次样本外一共切成 ${walkForward.nSteps} 段；每段按 ${entry.stepDays} 天滚动，步数越多参考性越强。`
-      : "当前缺少 walk-forward 摘要，所以还看不出样本外分成了几段。";
-    div.innerHTML =
-      `<div class="candidate-head">` +
-      `<div>` +
-      `<div class="candidate-title">${entry.label}</div>` +
-      `<div class="candidate-description">${entry.recommendationReason}</div>` +
-      `</div>` +
-      `<div class="candidate-tags">` +
-      `${entry.selected ? '<span class="candidate-tag info">当前启用</span>' : ""}` +
-      `${entry.recommended ? '<span class="candidate-tag good">系统推荐</span>' : ""}` +
-      `<span class="candidate-tag">coverage ${formatPercent(entry.coverageTarget)}</span>` +
-      `<span class="candidate-tag">${entry.pattern}</span>` +
-      `</div>` +
-      `</div>` +
-      `<div class="candidate-metrics">` +
-      renderCandidateMetric("样本外总收益", walkForward ? `${walkForward.totalPnlU.toFixed(2)} U` : "-", "训练完成后，在样本外测试区间累计得到的模拟收益，不等于未来年化收益。") +
-      renderCandidateMetric("总爆仓次数", walkForward ? walkForward.totalBlowups : "-", "样本外测试里，马丁一路打到最大步数仍未回本的次数；越少越稳。") +
-      renderCandidateMetric("最大回撤", walkForward ? `${walkForward.maxStepDrawdownU.toFixed(2)} U` : "-", "样本外测试期间出现过的最大历史回撤，不是未来实盘回撤上限。") +
-      renderCandidateMetric("allowed_states", entry.allowedStatesCount, "允许开新一轮马丁的状态数量；越多通常意味着触发更频繁。") +
-      `</div>` +
-      `<div class="candidate-metrics">` +
-      renderCandidateMetric("walk-forward 步数", walkForward ? walkForward.nSteps : "-", walkForwardStepNote) +
-      renderCandidateMetric("盈利周数", walkForward ? walkForward.profitableSteps : "-", "样本外分段里最终赚钱的段数；它和总收益要一起看，不能单独代表好坏。") +
-      renderCandidateMetric("亏损周数", walkForward ? walkForward.losingSteps : "-", "样本外分段里最终亏钱的段数；如果很多，说明稳定性还不够。") +
-      renderCandidateMetric("平均训练覆盖率", walkForward ? formatPercent(walkForward.avgTrainCoverage) : "-", `每轮训练阶段实际筛出的 coverage 平均值；当前这套策略的目标 coverage 是 ${formatPercent(entry.coverageTarget)}。`) +
-      `</div>` +
-      `<div class="candidate-actions">` +
-      `<button type="button" data-action="select-candidate" data-dir="${entry.dir}">${entry.selected ? "当前已启用" : "设为当前策略"}</button>` +
-      `</div>`;
-    candidateStrategyList.appendChild(div);
-  }
+  const liveEntries = sortLiveCandidatesForDisplay((strategyPage.available || []).filter((entry) => entry.liveEligible));
+  const researchTop = rankedEntries.slice(0, 6);
+  const liveTop = liveEntries.slice(0, 6);
 
-  if (rankedEntries.length > displayEntries.length) {
+  renderCandidateSection(
+    candidateStrategyList,
+    "研究候选 Top 6",
+    researchTop,
+    "当前没有可展示的研究候选。",
+    { description: null },
+  );
+  renderCandidateSection(
+    candidateStrategyList,
+    "实盘候选 Top 6",
+    liveTop,
+    "当前没有同时满足 blowup=0、walk-forward 步数>=3、样本外收益为正的候选。",
+    { description: null },
+  );
+
+  const notice = document.createElement("div");
+  notice.className = "info-strip";
+  notice.textContent = `当前目录共有 ${rankedEntries.length} 套候选策略，其中 ${liveEntries.length} 套满足实盘门槛；页面默认各展示前 6 名，完整候选仍保留在下拉框和本地策略目录中。`;
+  candidateStrategyList.appendChild(notice);
+
+  if (rankedEntries.length > researchTop.length || liveEntries.length > liveTop.length) {
     const notice = document.createElement("div");
     notice.className = "info-strip";
-    notice.textContent = `本次共得到 ${rankedEntries.length} 套候选策略，页面默认只展示前 6 名；完整候选仍保留在下拉框和本地策略目录中。`;
+    notice.textContent = "如果您要继续深挖，请结合实盘门槛、收益、回撤、walk-forward 步数一起看，不要只看页面第 1 名。";
     candidateStrategyList.appendChild(notice);
   }
 }
@@ -587,10 +761,13 @@ function renderStrategyPanel() {
 function applyConfigToForm(config) {
   latestConfig = config;
   form.profileName.value = config.profileName || "";
+  form.accountMode.value = config.account?.accountMode || "eoa";
+  form.accountLabel.value = config.account?.label || "";
+  form.accountNotes.value = config.account?.notes || "";
   form.privateKey.value = config.credentials.privateKey || "";
   form.walletAddress.value = config.credentials.walletAddress || "";
   form.funderAddress.value = config.credentials.funderAddress || "";
-  form.signatureType.value = String(config.credentials.signatureType ?? 3);
+  form.signatureType.value = String(config.credentials.signatureType ?? 0);
   form.executeLive.value = String(Boolean(config.trading.executeLive));
   form.commitState.value = String(Boolean(config.trading.commitState));
   form.intervalMs.value = String(config.trading.intervalMs ?? 60000);
@@ -609,6 +786,7 @@ function applyConfigToForm(config) {
   form.gammaApiBaseUrl.value = config.network.gammaApiBaseUrl || "";
   form.binanceApiBaseUrl.value = config.network.binanceApiBaseUrl || "";
   form.scheduledTaskName.value = config.windows.scheduledTaskName || "";
+  syncAccountModeDefaults(true);
   syncStrategySelection();
   renderStrategyPanel();
 }
@@ -626,12 +804,18 @@ function buildConfigFromForm() {
   return {
     ...latestConfig,
     profileName: form.profileName.value.trim(),
+    account: {
+      ...latestConfig.account,
+      accountMode: form.accountMode.value,
+      label: form.accountLabel.value.trim(),
+      notes: form.accountNotes.value.trim(),
+    },
     credentials: {
       ...latestConfig.credentials,
       privateKey: form.privateKey.value.trim(),
       walletAddress: form.walletAddress.value.trim(),
       funderAddress: form.funderAddress.value.trim(),
-      signatureType: numberFromInput(form.signatureType.value, 3),
+      signatureType: numberFromInput(form.signatureType.value, 0),
     },
     network: {
       ...latestConfig.network,
@@ -703,17 +887,24 @@ function renderState(state) {
       detail: activeStrategy?.currentStep ? `当前为第 ${activeStrategy.currentStep} 步` : "当前未开新轮，下一轮将从首步金额开始",
     },
     {
+      title: "账户模式",
+      value: friendlyAccountMode(state.overview.accountMode),
+      detail: state.pages.config.summary.modeHint || "请根据当前账户结构确认 signer、funder 和签名类型。",
+    },
+    {
       title: "最近动作",
       value: friendlyAction(state.overview.lastAction),
       detail: state.overview.activeOrderId ? `当前订单：${state.overview.activeOrderId}` : "当前没有活动中的订单",
     },
   ]);
   renderBanners(state.pages.dashboard.banners);
+  renderBannerGroup(accountCheckList, state.pages.config.accountChecks || []);
   renderStatusCards(
     [
       { label: "程序状态", value: friendlyHealth(state.overview.health), tone: state.overview.health === "running" || state.overview.health === "sleeping" ? "good" : state.overview.health === "error" || state.overview.health === "stale" ? "danger" : state.overview.health === "runtime_paused" ? "warning" : "neutral" },
       { label: "运行模式", value: state.overview.executeLive ? "真实运行" : "模拟运行", tone: state.overview.executeLive ? "warning" : "neutral" },
       { label: "轮询间隔", value: `${state.overview.intervalMs} 毫秒`, tone: "neutral" },
+      { label: "账户模式", value: friendlyAccountMode(state.overview.accountMode), tone: "neutral" },
       { label: "暂停状态", value: state.overview.runtimePaused ? "已暂停" : "正常", tone: state.overview.runtimePaused ? "warning" : "good" },
       { label: "最近动作", value: friendlyAction(state.overview.lastAction), tone: "neutral" },
       { label: "当前订单", value: state.overview.activeOrderId || "暂无", tone: state.overview.activeOrderId ? "warning" : "neutral" },
@@ -757,6 +948,66 @@ async function saveConfig() {
   renderState(payload.state);
 }
 
+async function validateAccountReadonly() {
+  const parsed = buildConfigFromForm();
+  const payload = await fetchJson("/api/account/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config: parsed }),
+  });
+  const result = payload.result || {};
+  const summary = {
+    checkedAt: result.checkedAt || "",
+    accountMode: result.accountMode || parsed.account?.accountMode || "eoa",
+    session: result.session || {},
+    diagnostics: result.diagnostics || {},
+    accountSnapshot: result.accountSnapshot || {},
+    market: result.market || null,
+    positions: result.positions || {},
+    suggestions: result.suggestions || [],
+  };
+  actionOutput.textContent = `只读验证成功\n${formatJson(summary)}`;
+  if (payload.state) {
+    renderState(payload.state);
+  }
+}
+
+async function previewTestOrder() {
+  const parsed = buildConfigFromForm();
+  const payload = await fetchJson("/api/order/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      config: parsed,
+      outcome: form.previewOutcome.value || "Up",
+      notional: numberFromInput(form.previewNotional.value, 2),
+    }),
+  });
+  const result = payload.result || {};
+  actionOutput.textContent = `测试单预览成功\n${formatJson(result)}`;
+  if (payload.state) {
+    renderState(payload.state);
+  }
+}
+
+async function submitControlledTestOrder() {
+  const parsed = buildConfigFromForm();
+  const payload = await fetchJson("/api/order/submit-test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      config: parsed,
+      outcome: form.previewOutcome.value || "Up",
+      notional: numberFromInput(form.previewNotional.value, 2),
+      confirmed: Boolean(form.submitTestConfirm.checked),
+    }),
+  });
+  actionOutput.textContent = `真实测试单已提交\n${formatJson(payload.result || {})}`;
+  if (payload.state) {
+    renderState(payload.state);
+  }
+}
+
 async function postAction(url, body = {}) {
   const payload = await fetchJson(url, {
     method: "POST",
@@ -790,6 +1041,52 @@ saveConfigButton.addEventListener("click", async () => {
     await loadPaths();
   } catch (error) {
     actionOutput.textContent = `保存失败\n${error instanceof Error ? error.message : String(error)}`;
+  }
+});
+
+validateAccountButton.addEventListener("click", async () => {
+  try {
+    validateAccountButton.disabled = true;
+    actionOutput.textContent = "正在执行只读验证，请稍等...";
+    await validateAccountReadonly();
+  } catch (error) {
+    actionOutput.textContent = `只读验证失败\n${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    validateAccountButton.disabled = false;
+  }
+});
+
+previewOrderButton.addEventListener("click", async () => {
+  try {
+    previewOrderButton.disabled = true;
+    actionOutput.textContent = "正在生成测试单预览，请稍等...";
+    await previewTestOrder();
+  } catch (error) {
+    actionOutput.textContent = `测试单预览失败\n${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    previewOrderButton.disabled = false;
+  }
+});
+
+submitTestOrderButton.addEventListener("click", async () => {
+  try {
+    submitTestOrderButton.disabled = true;
+    actionOutput.textContent = "正在提交小额真实测试单，请稍等...";
+    await submitControlledTestOrder();
+  } catch (error) {
+    actionOutput.textContent = `提交小额测试单失败\n${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    submitTestOrderButton.disabled = false;
+  }
+});
+
+form.accountMode.addEventListener("change", () => {
+  syncAccountModeDefaults(true);
+});
+
+form.walletAddress.addEventListener("input", () => {
+  if ((form.accountMode.value || "eoa") === "eoa" && !form.funderAddress.value.trim()) {
+    form.funderAddress.value = form.walletAddress.value.trim();
   }
 });
 

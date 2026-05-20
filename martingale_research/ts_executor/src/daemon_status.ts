@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
+import { applyAppConfigFileToProcessEnv } from "./app_config.js";
 import { loadExecutorConfig } from "./config.js";
 import { loadRuntimeState } from "./state.js";
 import type { DaemonHeartbeatSnapshot, DaemonHealthStatus, DaemonStatusSnapshot, ExecutorConfig } from "./types.js";
 
 interface CliArgs {
+  configFile?: string;
   staleAfterMs: number;
   help: boolean;
 }
@@ -16,6 +18,7 @@ function nowMs(): number {
 
 function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = {
+    configFile: undefined,
     staleAfterMs: 180_000,
     help: false,
   };
@@ -24,6 +27,10 @@ function parseArgs(argv: string[]): CliArgs {
     const arg = argv[i];
     const next = argv[i + 1];
     switch (arg) {
+      case "--config":
+        out.configFile = next;
+        i += 1;
+        break;
       case "--stale-after-ms":
         out.staleAfterMs = Math.max(1_000, Number(next));
         i += 1;
@@ -43,6 +50,7 @@ function parseArgs(argv: string[]): CliArgs {
 function printHelp(): void {
   console.log("Usage:");
   console.log("  npm run daemon-status --");
+  console.log("  npm run daemon-status -- --config .\\app_config.json");
   console.log("  npm run daemon-status -- --stale-after-ms 180000");
   console.log("");
   console.log("Notes:");
@@ -160,6 +168,9 @@ export async function runDaemonStatus(argv = process.argv.slice(2)): Promise<voi
   if (cli.help) {
     printHelp();
     return;
+  }
+  if (cli.configFile) {
+    applyAppConfigFileToProcessEnv(cli.configFile);
   }
   console.log(JSON.stringify(getDaemonStatusSnapshot(cli.staleAfterMs), null, 2));
 }

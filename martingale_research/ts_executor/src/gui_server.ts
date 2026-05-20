@@ -5,10 +5,28 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
+import { Side } from "@polymarket/clob-client-v2";
+import { getCollateralSnapshot, syncCollateralAllowance } from "./account.js";
 import { buildAppUiState } from "./app_ui_state.js";
 import { buildExecutorConfigFromAppConfig, loadAppConfig, makeDefaultAppConfig, saveAppConfig, validateAppConfig } from "./app_config.js";
+import { resolveAccountContext, resolveSessionContext } from "./auth.js";
+import { createTradingClient } from "./client.js";
 import { loadExecutorConfig } from "./config.js";
+import { appendExecutionEvent } from "./logger.js";
+import { locateCurrentBtc1hMarket } from "./market_locator.js";
+import { cancelOrder, getOrderSnapshot, postLimitOrder } from "./orders.js";
+import { getPositionsSnapshot } from "./positions.js";
+import {
+  applyAccountSnapshot,
+  applyOrderSnapshot,
+  applyPositionSnapshot,
+  applySessionSnapshot,
+  applyTradeSnapshot,
+  loadRuntimeState,
+  saveRuntimeState,
+} from "./state.js";
 import { listStrategyCatalog } from "./strategy_loader.js";
+import { getTradesForOrder } from "./trades.js";
 import type { ExecutorAppConfig } from "./types.js";
 
 interface CliArgs {
@@ -49,6 +67,51 @@ interface StrategyRescanProgress {
 }
 
 const strategyRescanJobs = new Map<string, StrategyRescanProgress>();
+const MAX_LIVE_TEST_NOTIONAL = 5;
+const POSITION_REFRESH_ATTEMPTS = 5;
+const POSITION_REFRESH_DELAYS_MS = [0, 1200, 2500, 5000, 8000] as const;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function getFreshPositionSnapshot(
+  executorConfig: ReturnType<typeof buildExecutorConfigFromAppConfig>,
+  session: Awaited<ReturnType<typeof resolveSessionContext>>,
+  tokenId: string,
+  expectFreshFill: boolean,
+) {
+  for (let attempt = 0; attempt < POSITION_REFRESH_ATTEMPTS; attempt += 1) {
+    const delayMs = POSITION_REFRESH_DELAYS_MS[attempt] ?? POSITION_REFRESH_DELAYS_MS[POSITION_REFRESH_DELAYS_MS.length - 1];
+    if (attempt > 0 || expectFreshFill) {
+      await sleep(delayMs);
+    }
+    const snapshot = await getPositionsSnapshot(executorConfig, session, tokenId);
+    if (!expectFreshFill || snapshot.size > 0 || attempt === POSITION_REFRESH_ATTEMPTS - 1) {
+      return snapshot;
+    }
+  }
+
+  return getPositionsSnapshot(executorConfig, session, tokenId);
+}
+
+function buildQuoteWarning(args: {
+  staticPrice: number;
+  quotedPrice: number;
+  notional: number;
+}): string {
+  const { staticPrice, quotedPrice, notional } = args;
+  if (!(quotedPrice > 0)) {
+    return "当前未拿到有效订单簿报价，界面已回退为使用静态价格预估。";
+  }
+  const deviation = Math.abs(quotedPrice - staticPrice);
+  if (!(staticPrice > 0) || deviation < 0.05) {
+    return `quotedPrice 来自订单簿深度，表示按 ${notional} U 真实吃单时的成交价估算，可能与页面静态价略有差异。`;
+  }
+  return `quotedPrice 来自订单簿深度，表示按 ${notional} U 真实吃单时的成交价估算；当前它与静态价相差较大，通常说明盘口深度较薄或该金额会跨多档成交。`;
+}
 
 function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = {
@@ -361,6 +424,361 @@ function buildGuiPathEntries(cli: CliArgs): GuiPathEntry[] {
   ];
 
   return entries;
+}
+
+function summarizeValidationMarket(raw: Awaited<ReturnType<typeof locateCurrentBtc1hMarket>>) {
+  if (!raw) {
+    return null;
+  }
+  return {
+    marketId: raw.marketId,
+    slug: raw.slug,
+    question: raw.question,
+    eventTitle: raw.eventTitle,
+    eventStartTime: raw.eventStartTime,
+    endDate: raw.endDate,
+    active: raw.active,
+    closed: raw.closed,
+    acceptingOrders: raw.acceptingOrders,
+    negRisk: raw.negRisk,
+    outcomes: raw.outcomes,
+  };
+}
+
+function computePreviewOrderSize(targetNotional: number, price: number): number {
+  if (!(price > 0)) {
+    throw new Error(`Order price must be positive, got ${price}`);
+  }
+  return Number((targetNotional / price).toFixed(6));
+}
+
+function isOpenOrderStatus(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return normalized === "live" || normalized === "open";
+}
+
+async function runReadonlyAccountValidation(config: ExecutorAppConfig) {
+  const issues = validateAppConfig(config);
+  if (issues.length > 0) {
+    return {
+      ok: false,
+      issues,
+    };
+  }
+
+  const executorConfig = buildExecutorConfigFromAppConfig(config);
+  const resolvedAccount = await resolveAccountContext(executorConfig);
+  const session = await resolveSessionContext(executorConfig);
+  const client = createTradingClient(executorConfig, session);
+  if (executorConfig.accountMode === "deposit_wallet_1271") {
+    await syncCollateralAllowance(client).catch(() => undefined);
+  }
+  const accountSnapshot = await getCollateralSnapshot(client, session);
+  const market = await locateCurrentBtc1hMarket(executorConfig);
+  const positions = await getPositionsSnapshot(executorConfig, session).catch((error) => ({
+    error: error instanceof Error ? error.message : String(error),
+  }));
+
+  const suggestions =
+    executorConfig.accountMode === "poly_proxy"
+      ? [
+          "请确认 walletAddress 填的是导出私钥对应 signer 地址。",
+          "请确认 funderAddress 填的是 Polymarket 站内 proxy wallet 地址，而不是 signer 地址本身。",
+          "只读验证通过后，再进入小额下单测试会更稳妥。",
+        ]
+      : executorConfig.accountMode === "deposit_wallet_1271"
+        ? [
+            "请确认 walletAddress 填的是导出私钥对应 signer 地址。",
+            "funderAddress 可以留空让系统自动推导 deposit wallet；如果您手动填写，请确保它就是 deposit wallet 地址。",
+            "deposit wallet 模式会先尝试同步余额，再进入只读验证和小额测试单会更稳妥。",
+          ]
+        : [
+            "EOA 模式下通常 walletAddress 与 funderAddress 应保持一致。",
+            "如果只读验证通过，说明当前老钱包模式的基础鉴权与余额读取仍然正常。",
+          ];
+
+  return {
+    ok: true,
+    checkedAt: new Date().toISOString(),
+    accountMode: executorConfig.accountMode,
+    session: {
+      walletAddress: session.walletAddress,
+      funderAddress: session.funderAddress,
+      signatureType: session.signatureType,
+      apiCredsPresent: Boolean(session.creds.key && session.creds.secret && session.creds.passphrase),
+    },
+    derivedDepositWallet: resolvedAccount.derivedDepositWallet ?? null,
+    diagnostics: resolvedAccount.diagnostics,
+    accountSnapshot,
+    market: summarizeValidationMarket(market),
+    positions,
+    suggestions,
+  };
+}
+
+async function runTestOrderPreview(
+  config: ExecutorAppConfig,
+  options: {
+    outcome: "Up" | "Down";
+    notional: number;
+  },
+) {
+  const issues = validateAppConfig(config);
+  if (issues.length > 0) {
+    return {
+      ok: false,
+      issues,
+    };
+  }
+
+  if (!(options.notional > 0)) {
+    throw new Error("测试单金额必须大于 0。");
+  }
+
+  const executorConfig = buildExecutorConfigFromAppConfig(config);
+  const session = await resolveSessionContext(executorConfig);
+  const client = createTradingClient(executorConfig, session);
+  if (executorConfig.accountMode === "deposit_wallet_1271") {
+    await syncCollateralAllowance(client).catch(() => undefined);
+  }
+  const market = await locateCurrentBtc1hMarket(executorConfig, {
+    targetTime: new Date(),
+    requireExactStart: true,
+  });
+  if (!market) {
+    throw new Error("当前没有定位到可用于测试的 BTC 1H 市场。");
+  }
+
+  const selectedToken = market.outcomes.find((item) => item.outcome.toLowerCase() === options.outcome.toLowerCase()) ?? null;
+  if (!selectedToken) {
+    throw new Error(`当前市场没有找到 ${options.outcome} 方向的 token。`);
+  }
+
+  const staticPrice = Number(selectedToken.price);
+  const quotedPrice = Number((await client.calculateMarketPrice(selectedToken.tokenId, Side.BUY, options.notional)).toFixed(6));
+  const effectivePrice = quotedPrice > 0 ? quotedPrice : staticPrice;
+  const quoteWarning = buildQuoteWarning({
+    staticPrice,
+    quotedPrice,
+    notional: options.notional,
+  });
+  const size = computePreviewOrderSize(options.notional, effectivePrice);
+
+  return {
+    ok: true,
+    checkedAt: new Date().toISOString(),
+    accountMode: executorConfig.accountMode,
+    outcome: options.outcome,
+    targetNotional: Number(options.notional.toFixed(6)),
+    market: summarizeValidationMarket(market),
+    selectedToken: {
+      outcome: selectedToken.outcome,
+      tokenId: selectedToken.tokenId,
+      staticPrice,
+      quotedPrice,
+      effectivePrice,
+      estimatedSize: size,
+    },
+    orderIntentPreview: {
+      side: "BUY",
+      tokenId: selectedToken.tokenId,
+      price: effectivePrice,
+      size,
+      amount: Number(options.notional.toFixed(6)),
+      orderType: "FOK",
+    },
+    warnings: [
+      "这只是测试单预览，不会真正提交订单。",
+      quoteWarning,
+      executorConfig.accountMode === "poly_proxy"
+        ? "POLY_PROXY 模式下请再次确认 walletAddress 是 signer，funderAddress 是站内 proxy wallet。"
+        : executorConfig.accountMode === "deposit_wallet_1271"
+          ? "Deposit Wallet 模式下请确认 walletAddress 是 signer，funderAddress 是 deposit wallet；若未手填，系统会使用自动推导结果。"
+          : "EOA 模式下请确认 walletAddress 与 funderAddress 的关系符合您当前老系统习惯。",
+      "真实小额测试时，建议先从最小可接受金额开始，并优先使用单独测试账户。",
+    ],
+  };
+}
+
+async function submitControlledTestOrder(
+  config: ExecutorAppConfig,
+  options: {
+    outcome: "Up" | "Down";
+    notional: number;
+    confirmed: boolean;
+  },
+) {
+  const issues = validateAppConfig(config);
+  if (issues.length > 0) {
+    return {
+      ok: false,
+      issues,
+    };
+  }
+
+  if (!options.confirmed) {
+    throw new Error("请先勾选确认框，再提交真实测试单。");
+  }
+  if (!(options.notional > 0)) {
+    throw new Error("测试单金额必须大于 0。");
+  }
+  if (options.notional > MAX_LIVE_TEST_NOTIONAL) {
+    throw new Error(`测试单金额不能超过 ${MAX_LIVE_TEST_NOTIONAL} U。`);
+  }
+
+  const executorConfig = buildExecutorConfigFromAppConfig(config);
+  const resolvedAccount = await resolveAccountContext(executorConfig);
+  const runtimeState = loadRuntimeState(executorConfig.stateFile);
+  const session = await resolveSessionContext(executorConfig);
+  let nextState = applySessionSnapshot(runtimeState, session);
+  const client = createTradingClient(executorConfig, session);
+  if (executorConfig.accountMode === "deposit_wallet_1271") {
+    await syncCollateralAllowance(client).catch(() => undefined);
+  }
+  const accountSnapshot = await getCollateralSnapshot(client, session);
+  nextState = applyAccountSnapshot(nextState, accountSnapshot);
+
+  const market = await locateCurrentBtc1hMarket(executorConfig, {
+    targetTime: new Date(),
+    requireExactStart: true,
+  });
+  if (!market) {
+    throw new Error("当前没有定位到可用于测试的 BTC 1H 市场。");
+  }
+
+  const selectedToken = market.outcomes.find((item) => item.outcome.toLowerCase() === options.outcome.toLowerCase()) ?? null;
+  if (!selectedToken) {
+    throw new Error(`当前市场没有找到 ${options.outcome} 方向的 token。`);
+  }
+
+  const staticPrice = Number(selectedToken.price);
+  const quotedPrice = Number((await client.calculateMarketPrice(selectedToken.tokenId, Side.BUY, options.notional)).toFixed(6));
+  if (!(quotedPrice > 0)) {
+    throw new Error("当前无法获取有效市场价格，请稍后重试。");
+  }
+  const quoteWarning = buildQuoteWarning({
+    staticPrice,
+    quotedPrice,
+    notional: options.notional,
+  });
+  const size = computePreviewOrderSize(options.notional, quotedPrice);
+  const orderIntent = {
+    tokenId: selectedToken.tokenId,
+    side: "BUY" as const,
+    price: quotedPrice,
+    size,
+    amount: Number(options.notional.toFixed(6)),
+    orderType: "FOK" as const,
+  };
+
+  appendExecutionEvent(executorConfig.eventsLogFile, {
+    timestamp: new Date().toISOString(),
+    eventType: "GUI_TEST_ORDER_SUBMITTING",
+    message: "Submitting controlled live test order from GUI.",
+    tokenId: orderIntent.tokenId,
+    payload: {
+      accountMode: executorConfig.accountMode,
+      outcome: options.outcome,
+      targetNotional: options.notional,
+      orderIntent,
+    },
+  });
+
+  const postResult = (await postLimitOrder(client, orderIntent)) as Record<string, unknown>;
+  const orderId = String(postResult.orderID ?? "");
+
+  let orderSnapshot = orderId ? await getOrderSnapshot(client, orderId) : null;
+  if (orderSnapshot) {
+    nextState = applyOrderSnapshot(nextState, orderSnapshot, {
+      conditionId: market.conditionId,
+    });
+  }
+
+  const tradeSnapshot = orderId ? await getTradesForOrder(client, orderId, session.funderAddress) : null;
+  if (tradeSnapshot) {
+    nextState = applyTradeSnapshot(nextState, tradeSnapshot);
+  }
+
+  const positionSnapshot = await getFreshPositionSnapshot(
+    executorConfig,
+    session,
+    orderSnapshot?.tokenId || orderIntent.tokenId,
+    Boolean(tradeSnapshot?.count),
+  );
+  nextState = applyPositionSnapshot(nextState, positionSnapshot);
+
+  let cancelResult: unknown = null;
+  if (orderSnapshot && orderId && isOpenOrderStatus(orderSnapshot.status)) {
+    try {
+      cancelResult = await cancelOrder(client, orderId);
+      orderSnapshot = await getOrderSnapshot(client, orderId);
+      nextState = applyOrderSnapshot(nextState, orderSnapshot, {
+        conditionId: market.conditionId,
+      });
+    } catch (error) {
+      cancelResult = {
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  saveRuntimeState(executorConfig.stateFile, nextState);
+
+  appendExecutionEvent(executorConfig.eventsLogFile, {
+    timestamp: new Date().toISOString(),
+    eventType: "GUI_TEST_ORDER_SUBMITTED",
+    message: "Controlled live test order finished.",
+    orderId: orderId || undefined,
+    tokenId: orderIntent.tokenId,
+    payload: {
+      accountMode: executorConfig.accountMode,
+      outcome: options.outcome,
+      targetNotional: options.notional,
+      postResult,
+      orderSnapshot,
+      tradeSnapshot,
+      positionSnapshot,
+      cancelResult,
+    },
+  });
+
+  return {
+    ok: true,
+    checkedAt: new Date().toISOString(),
+    accountMode: executorConfig.accountMode,
+    liveOrderSubmitted: true,
+    maxAllowedNotional: MAX_LIVE_TEST_NOTIONAL,
+    session: {
+      walletAddress: session.walletAddress,
+      funderAddress: session.funderAddress,
+      signatureType: session.signatureType,
+    },
+    derivedDepositWallet: resolvedAccount.derivedDepositWallet ?? null,
+    accountSnapshot,
+    market: summarizeValidationMarket(market),
+    selectedToken: {
+      outcome: selectedToken.outcome,
+      tokenId: selectedToken.tokenId,
+      staticPrice,
+      quotedPrice,
+      estimatedSize: size,
+    },
+    orderIntent,
+    orderId,
+    postResult,
+    orderSnapshot,
+    tradeSnapshot,
+    positionSnapshot,
+    cancelResult,
+    warnings: [
+      "这一步已经是真实下单验证，请务必使用小额和隔离测试账户。",
+      quoteWarning,
+      executorConfig.accountMode === "deposit_wallet_1271"
+        ? "如果 Polymarket 后台出现真实订单，说明 deposit wallet flow 的核心下单链路已经打通。"
+        : "如果 Polymarket 后台出现真实订单，说明邮箱模式的核心下单链路已经打通。",
+      "如果订单状态显示为 open/live，系统已尝试自动撤单以避免残留挂单。",
+    ],
+  };
 }
 
 function resolveGuiPathTarget(cli: CliArgs, key: string): string | null {
@@ -796,6 +1214,96 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
       ok: true,
       filePath: cli.configFile,
       issues: [],
+      state: buildAppUiState({
+        configFile: cli.configFile,
+        staleAfterMs: cli.staleAfterMs,
+        logLimit: cli.logLimit,
+      }),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && reqUrl.pathname === "/api/account/validate") {
+    const body = await readJsonBody(req);
+    const nextConfig = (body.config ?? null) as ExecutorAppConfig | null;
+    const candidateConfig = nextConfig ?? loadEditableConfig(cli.configFile).config;
+    const result = await runReadonlyAccountValidation(candidateConfig);
+    if (!result.ok) {
+      sendJson(res, 400, {
+        ok: false,
+        mode: "account_readonly_validation",
+        issues: result.issues,
+      });
+      return true;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      mode: "account_readonly_validation",
+      result,
+      state: buildAppUiState({
+        configFile: cli.configFile,
+        staleAfterMs: cli.staleAfterMs,
+        logLimit: cli.logLimit,
+      }),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && reqUrl.pathname === "/api/order/preview") {
+    const body = await readJsonBody(req);
+    const nextConfig = (body.config ?? null) as ExecutorAppConfig | null;
+    const outcome = body.outcome === "Down" ? "Down" : "Up";
+    const notional = Number(body.notional ?? 0);
+    const candidateConfig = nextConfig ?? loadEditableConfig(cli.configFile).config;
+    const result = await runTestOrderPreview(candidateConfig, {
+      outcome,
+      notional,
+    });
+    if (!result.ok) {
+      sendJson(res, 400, {
+        ok: false,
+        mode: "test_order_preview",
+        issues: result.issues,
+      });
+      return true;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      mode: "test_order_preview",
+      result,
+      state: buildAppUiState({
+        configFile: cli.configFile,
+        staleAfterMs: cli.staleAfterMs,
+        logLimit: cli.logLimit,
+      }),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && reqUrl.pathname === "/api/order/submit-test") {
+    const body = await readJsonBody(req);
+    const nextConfig = (body.config ?? null) as ExecutorAppConfig | null;
+    const outcome = body.outcome === "Down" ? "Down" : "Up";
+    const notional = Number(body.notional ?? 0);
+    const confirmed = body.confirmed === true;
+    const candidateConfig = nextConfig ?? loadEditableConfig(cli.configFile).config;
+    const result = await submitControlledTestOrder(candidateConfig, {
+      outcome,
+      notional,
+      confirmed,
+    });
+    if (!result.ok) {
+      sendJson(res, 400, {
+        ok: false,
+        mode: "submit_controlled_test_order",
+        issues: result.issues,
+      });
+      return true;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      mode: "submit_controlled_test_order",
+      result,
       state: buildAppUiState({
         configFile: cli.configFile,
         staleAfterMs: cli.staleAfterMs,

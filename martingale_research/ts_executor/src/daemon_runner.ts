@@ -2,12 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { applyAppConfigFileToProcessEnv } from "./app_config.js";
 import { loadExecutorConfig } from "./config.js";
 import { appendExecutionEvent } from "./logger.js";
 import { runHourlyDaemon } from "./hourly_daemon_demo.js";
 import { loadRuntimeState } from "./state.js";
 
 interface CliArgs {
+  configFile?: string;
   execute: boolean;
   intervalMs: number;
   maxTicks?: number;
@@ -49,6 +51,7 @@ interface RuntimeSummary {
 
 function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = {
+    configFile: undefined,
     execute: false,
     intervalMs: 60_000,
     commitState: true,
@@ -59,6 +62,10 @@ function parseArgs(argv: string[]): CliArgs {
     const arg = argv[i];
     const next = argv[i + 1];
     switch (arg) {
+      case "--config":
+        out.configFile = next;
+        i += 1;
+        break;
       case "--execute":
         out.execute = true;
         break;
@@ -88,6 +95,7 @@ function parseArgs(argv: string[]): CliArgs {
 function printHelp(): void {
   console.log("Usage:");
   console.log("  npm run daemon-runner --");
+  console.log("  npm run daemon-runner -- --config .\\app_config.json");
   console.log("  npm run daemon-runner -- --max-ticks 1");
   console.log("  npm run daemon-runner -- --interval-ms 30000");
   console.log("  npm run daemon-runner -- --execute");
@@ -198,6 +206,9 @@ export async function runDaemonRunner(argv = process.argv.slice(2)): Promise<voi
     printHelp();
     return;
   }
+  if (cli.configFile) {
+    applyAppConfigFileToProcessEnv(cli.configFile);
+  }
 
   const config = loadExecutorConfig();
   if (stopRequested(config.daemonStopFile)) {
@@ -278,6 +289,9 @@ export async function runDaemonRunner(argv = process.argv.slice(2)): Promise<voi
 
       try {
         const tickArgs = cli.execute ? ["--execute"] : [];
+        if (cli.configFile) {
+          tickArgs.push("--config", cli.configFile);
+        }
         if (cli.commitState) {
           tickArgs.push("--commit-state");
         }

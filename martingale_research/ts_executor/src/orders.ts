@@ -34,6 +34,15 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function normalizeEpochToIso(value: unknown): string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return nowIso();
+  }
+  const epochMs = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+  return new Date(epochMs).toISOString();
+}
+
 export async function postLimitOrder(client: ClobClient, intent: OrderIntent): Promise<unknown> {
   const tickSize = await client.getTickSize(intent.tokenId);
   const negRisk = await client.getNegRisk(intent.tokenId);
@@ -96,7 +105,7 @@ export async function getOrderSnapshot(client: ClobClient, orderId: string): Pro
     originalSize: String(raw.original_size ?? ""),
     matchedSize: String(raw.size_matched ?? ""),
     outcome: String(raw.outcome ?? ""),
-    createdAt: raw.created_at ? new Date(Number(raw.created_at)).toISOString() : nowIso(),
+    createdAt: normalizeEpochToIso(raw.created_at),
     raw,
   };
 }

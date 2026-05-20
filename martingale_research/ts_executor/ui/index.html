@@ -83,9 +83,26 @@
         <form id="config-form" class="form-grid">
           <div class="form-section">
             <h3>账户配置</h3>
+            <div id="account-mode-hint" class="info-strip field-full">读取中...</div>
             <label class="field">
               <span>配置名称</span>
               <input id="profile-name" type="text" />
+            </label>
+            <label class="field">
+              <span>账户模式</span>
+              <select id="account-mode">
+                <option value="eoa">EOA 钱包模式</option>
+                <option value="poly_proxy">Polymarket 邮箱账户模式</option>
+                <option value="deposit_wallet_1271">Polymarket 邮箱账户模式（Deposit Wallet）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>账户标签</span>
+              <input id="account-label" type="text" />
+            </label>
+            <label class="field field-full">
+              <span>账户备注</span>
+              <input id="account-notes" type="text" />
             </label>
             <label class="field">
               <span>钱包私钥</span>
@@ -217,9 +234,35 @@
             </details>
           </div>
         </form>
+        <div class="panel-subtitle">账户模式检查</div>
+        <div id="account-check-list" class="banner-list"></div>
+        <div class="panel-subtitle">测试单预览</div>
+        <div class="advanced-grid">
+          <label class="field">
+            <span>测试方向</span>
+            <select id="preview-outcome">
+              <option value="Up">Up</option>
+              <option value="Down">Down</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>测试金额 U</span>
+            <input id="preview-notional" type="number" min="1" step="0.1" value="2" />
+          </label>
+        </div>
+        <label class="field field-full">
+          <span>真实测试确认</span>
+          <label class="checkbox-line">
+            <input id="submit-test-confirm" type="checkbox" />
+            <span>我确认这一步会在 Polymarket 真实提交一笔小额测试单，并且我已准备好小额资金。</span>
+          </label>
+        </label>
         <div class="button-row">
           <button id="load-config-button">重新载入配置</button>
           <button id="save-config-button">保存配置</button>
+          <button id="validate-account-button">只读验证账户</button>
+          <button id="preview-order-button">预览测试单</button>
+          <button id="submit-test-order-button">提交小额测试单</button>
         </div>
       </section>
 

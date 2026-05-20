@@ -17,9 +17,10 @@ function nowIso(): string {
 export function makeDefaultRuntimeState(): RuntimeStateV2 {
   return {
     session: {
+      accountMode: "eoa",
       walletAddress: "",
       funderAddress: "",
-      signatureType: 3,
+      signatureType: 0,
       connected: false,
       updatedAt: "",
     },
@@ -49,6 +50,7 @@ export function makeDefaultRuntimeState(): RuntimeStateV2 {
       lastOrderId: "",
       lastOrderStatus: "",
       lastOrderTokenId: "",
+      lastOrderConditionId: "",
       lastOrderSide: "",
       lastOrderPrice: 0,
       lastOrderSize: 0,
@@ -155,6 +157,7 @@ export function applySessionSnapshot(state: RuntimeStateV2, session: SessionCont
   return {
     ...state,
     session: {
+      accountMode: session.accountMode,
       walletAddress: session.walletAddress,
       funderAddress: session.funderAddress,
       signatureType: session.signatureType,
@@ -185,7 +188,13 @@ export function applyRedemptionState(
   };
 }
 
-export function applyOrderSnapshot(state: RuntimeStateV2, snapshot: OrderSnapshot): RuntimeStateV2 {
+export function applyOrderSnapshot(
+  state: RuntimeStateV2,
+  snapshot: OrderSnapshot,
+  options?: {
+    conditionId?: string;
+  },
+): RuntimeStateV2 {
   const activeOrderIds =
     snapshot.status.toLowerCase() === "live" || snapshot.status.toLowerCase() === "open"
       ? Array.from(new Set([...state.orders.activeOrderIds, snapshot.orderId]))
@@ -198,6 +207,7 @@ export function applyOrderSnapshot(state: RuntimeStateV2, snapshot: OrderSnapsho
       lastOrderId: snapshot.orderId,
       lastOrderStatus: snapshot.status,
       lastOrderTokenId: snapshot.tokenId,
+      lastOrderConditionId: options?.conditionId ?? state.orders.lastOrderConditionId,
       lastOrderSide: snapshot.side,
       lastOrderPrice: Number(snapshot.price || 0),
       lastOrderSize: Number(snapshot.originalSize || 0),

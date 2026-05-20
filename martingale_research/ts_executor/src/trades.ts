@@ -2,17 +2,30 @@ import type { ClobClient } from "@polymarket/clob-client-v2";
 
 import type { TradeSnapshot } from "./types.js";
 
+function matchesOrderId(
+  trade: Awaited<ReturnType<ClobClient["getTrades"]>>[number],
+  orderId: string,
+): boolean {
+  return (
+    trade.taker_order_id === orderId ||
+    trade.maker_orders.some((makerOrder) => makerOrder.order_id === orderId)
+  );
+}
+
 export async function getTradesForOrder(
   client: ClobClient,
   orderId: string,
   makerAddress?: string,
 ): Promise<TradeSnapshot> {
-  const trades = makerAddress ? await client.getTrades({ maker_address: makerAddress }) : await client.getTrades();
-  const matchedTrades = trades.filter(
-    (trade) =>
-      trade.taker_order_id === orderId ||
-      trade.maker_orders.some((makerOrder) => makerOrder.order_id === orderId),
-  );
+  const makerScopedTrades = makerAddress ? await client.getTrades({ maker_address: makerAddress }) : null;
+  let matchedTrades = (makerScopedTrades ?? await client.getTrades()).filter((trade) => matchesOrderId(trade, orderId));
+
+  // Keep the current maker-scoped query as the fast path, but fall back to the
+  // broader trade lookup when the order likely matched as taker and would be missed.
+  if (makerAddress && matchedTrades.length === 0) {
+    matchedTrades = (await client.getTrades()).filter((trade) => matchesOrderId(trade, orderId));
+  }
+
   const tradeIds = matchedTrades.map((trade) => trade.id);
   const tokenIds = Array.from(new Set(matchedTrades.map((trade) => String(trade.asset_id ?? "")))).filter(Boolean);
   const latestTrade = matchedTrades

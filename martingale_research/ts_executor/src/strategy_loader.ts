@@ -112,6 +112,9 @@ function buildRecommendationReason(entry: StrategyCatalogEntry): string {
   if (!entry.walkForward) {
     return "该策略缺少 walk-forward 摘要，暂不参与推荐。";
   }
+  if (entry.walkForward.latestAllowedStatesCountMatchesCurrent === false) {
+    return `这套策略的 walk-forward 摘要已过期：摘要记录 allowed states=${entry.walkForward.latestAllowedStatesCount}，当前策略包是 ${entry.walkForward.currentAllowedStatesCount ?? entry.allowedStatesCount}。当前仍可执行，但摘要统计仅供参考。`;
+  }
   if (entry.recommended) {
     return `当前按“覆盖率接近 60% + 样本外总收益为正 + 回撤可控”规则推荐这套策略。`;
   }
@@ -179,7 +182,19 @@ export function listStrategyCatalog(strategyRoot: string): StrategyCatalogEntry[
   const catalog = entries
     .map((dir) => {
       const { strategy } = loadStrategyBundle(dir);
-      const walkForward = readWalkForwardSummary(dir);
+      const walkForwardRaw = readWalkForwardSummary(dir);
+      const walkForward = walkForwardRaw
+        ? {
+            ...walkForwardRaw,
+            currentAllowedStatesCount: strategy.allowedStatesCount,
+            latestAllowedStatesCountMatchesCurrent:
+              walkForwardRaw.latestAllowedStatesCount === strategy.allowedStatesCount,
+            summaryStatusNote:
+              walkForwardRaw.latestAllowedStatesCount === strategy.allowedStatesCount
+                ? ""
+                : `walk-forward 摘要记录的 allowed states 数量为 ${walkForwardRaw.latestAllowedStatesCount}，当前策略包为 ${strategy.allowedStatesCount}。`,
+          }
+        : null;
       const name = path.basename(dir);
       return {
         key: name,
@@ -201,8 +216,12 @@ export function listStrategyCatalog(strategyRoot: string): StrategyCatalogEntry[
           walkForward,
         }),
         recommended: false,
+        liveEligible: false,
+        liveRecommended: false,
+        sourceKind: name.startsWith("auto-") ? "auto" : name.startsWith("temp-") ? "temp" : "other",
         selected: false,
         recommendationReason: "",
+        liveRecommendationReason: "",
       } satisfies StrategyCatalogEntry;
     })
     .sort((a, b) => a.label.localeCompare(b.label));
