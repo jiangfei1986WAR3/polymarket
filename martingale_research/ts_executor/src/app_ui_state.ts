@@ -249,7 +249,6 @@ function compareLiveCandidates(a: StrategyCatalogEntry, b: StrategyCatalogEntry)
   }
   return (b.walkForward?.totalPnlU ?? Number.NEGATIVE_INFINITY) - (a.walkForward?.totalPnlU ?? Number.NEGATIVE_INFINITY);
 }
-
 function safeReadRecentExecutionEvents(logFile: string, limit: number): AppUiLogEntry[] {
   if (!fs.existsSync(logFile)) {
     return [];

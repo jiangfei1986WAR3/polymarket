@@ -98,7 +98,6 @@ function validateSignerWalletRelation(config: ExecutorConfig): void {
     );
   }
 }
-
 function resolveFunderAddress(args: {
   config: ExecutorConfig;
   walletAddress: `0x${string}`;

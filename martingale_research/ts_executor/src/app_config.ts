@@ -35,7 +35,6 @@ function doesPrivateKeyMatchWalletAddress(privateKey: string, walletAddress: str
   }
   return privateKeyToAccount(privateKey as `0x${string}`).address.toLowerCase() === walletAddress.toLowerCase();
 }
-
 function normalizeAccountMode(value: string | undefined): AccountMode {
   if (!value || value === "eoa" || value === "wallet") {
     return "eoa";
